@@ -16,7 +16,48 @@ Before you can design a system, you need vocabulary for what a system *is* and w
 
 Almost every system you'll be asked to design is a variation on this:
 
+```mermaid
+flowchart TB
+    Client([Browser / App])
+    DNS["DNS<br/>where does api.example.com live?"]
+    Client -. "1 · resolve name" .-> DNS
+    Client -- "2 · HTTPS request" --> LB
+
+    LB["Load Balancer<br/>spreads traffic across identical servers"]
+
+    subgraph STATELESS ["Stateless tier · easy to scale"]
+        direction LR
+        App1["App server 1"]
+        App2["App server 2"]
+        App3["App server 3"]
+    end
+
+    LB --> App1
+    LB --> App2
+    LB --> App3
+
+    subgraph STATEFUL ["Stateful tier · the hard part"]
+        direction LR
+        Cache[("Cache · Redis")]
+        Queue{{"Queue · Kafka"}}
+        DB[("Database")]
+    end
+
+    App1 --> Cache
+    App2 --> Cache
+    App3 --> Cache
+    Cache -- "cache miss" --> DB
+    App2 -- "async jobs" --> Queue
+    Queue --> Workers["Background workers"]
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class DB hot
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
                     ┌──────────┐
    [Browser/App] ───│   DNS    │  "where does api.example.com live?"
         │           └──────────┘
@@ -42,6 +83,8 @@ Almost every system you'll be asked to design is a variation on this:
    │  Database   │  <- the "stateful" tier, the hard part
    └─────────────┘
 ```
+
+</details>
 
 **The key insight:** the app servers are easy. You can add a hundred of them in an afternoon. Everything hard in system design lives in the boxes that hold state — the database, the cache, the queue — because state can't simply be duplicated without raising questions about which copy is correct.
 

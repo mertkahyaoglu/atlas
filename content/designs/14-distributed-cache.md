@@ -48,23 +48,23 @@ Key metric:     HIT RATE. A drop from 95% → 80% triples origin load.
 
 ## API / Model
 
-```
-GET    key                    → value | NOT_FOUND
-SET    key value [EX ttl]     → OK
-DEL    key                    → count
-INCR   key                    → int        (atomic, no read-modify-write race)
-MGET   k1 k2 k3               → values     (batching cuts round trips)
+```api
+@commands
+GET key || || value | NOT_FOUND
+SET key value [EX ttl] || || OK
+DEL key || || count
+INCR key || || int || atomic, no read-modify-write race
+MGET k1 k2 k3 || || values || batching cuts round trips
 ```
 
-```
-PER NODE (in memory)
-  hash_map:  key → node in doubly-linked list      ← O(1) lookup
-  LRU list:  MRU ◄──►◄──►◄──► LRU                  ← O(1) reorder + evict
-  each entry: {key, value, expires_at, prev, next}
-
-CLUSTER STATE
-  ring:        hash position → physical node (via virtual nodes)
-  membership:  node → alive|suspect|dead, gossip-propagated
+```schema
+# Per node · in memory
+hash_map || || key → node in doubly-linked list || O(1) lookup
+LRU list || || MRU ◄──►◄──►◄──► LRU || O(1) reorder and evict
+entry || || {key, value, expires_at, prev, next} ||
+# Cluster state
+ring || || hash position → physical node, via virtual nodes ||
+membership || || node → alive | suspect | dead || gossip-propagated
 ```
 
 ---

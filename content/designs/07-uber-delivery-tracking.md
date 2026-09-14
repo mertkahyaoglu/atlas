@@ -47,27 +47,25 @@ Location payload:   ~100B → 125 MB/sec sustained
 
 ## API / Model
 
+```api
+# Driver · persistent WS or frequent POST
+POST /v1/drivers/location || {driver_id, lat, lng, heading, ts} || 202
+WS driver stream || || 101 || receives trip offers
+# Rider
+POST /v1/rides || {pickup, dropoff} || 201 ride_id
+GET /v1/rides/{id} || || 200 status
+WS rider stream || || 101 || receives driver position updates
 ```
-Driver (persistent WS or frequent POST)
-  POST /v1/drivers/location        {driver_id, lat, lng, heading, ts}
-  WS   driver stream               ← receives trip offers
 
-Rider
-  POST /v1/rides                   {pickup, dropoff}          → ride_id
-  GET  /v1/rides/{id}                                          → status
-  WS   rider stream                ← receives driver position updates
-```
-
-```
-REDIS (hot, in-memory — current state only)
-  geo:{city_id}        GEOADD sorted set (geohash score) → driver positions
-  driver:{id}:status   available | offered | on_trip   (+ TTL heartbeat)
-  lock:driver:{id}     SET NX PX — assignment mutex
-
-CASSANDRA / persistent
-  trips        PK: trip_id — rider, driver, state, timestamps, fare
-  trip_events  PK: trip_id  SK: ts — state transitions (audit)
-  location_hist PK: (driver_id, day) SK: ts  ← cold path, analytics only
+```schema
+# Redis · hot, in-memory, current state only
+geo:{city_id} || || GEOADD sorted set, geohash score || driver positions
+driver:{id}:status || || available | offered | on_trip || kept alive by a TTL heartbeat
+lock:driver:{id} || || SET NX PX || assignment mutex
+# Cassandra · persistent
+trips || PK: trip_id || rider, driver, state, timestamps, fare ||
+trip_events || PK: trip_id SK: ts || state transitions || audit trail
+location_hist || PK: (driver_id, day) SK: ts || positions || cold path, analytics only
 ```
 
 ---

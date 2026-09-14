@@ -49,28 +49,22 @@ Query load:   dashboards ~1,000/sec; reports lower volume, heavier
 
 ## API / Model
 
-```
-POST /v1/events           {event_id, type, ad_id, user_id, ts, country, device}
-                          ← fire-and-forget from the ad server; never blocks a page
-
-GET  /v1/stats?ad_id=&from=&to=&granularity=minute|hour|day&group_by=country
-GET  /v1/campaigns/{id}/summary
+```api
+POST /v1/events || {event_id, type, ad_id, user_id, ts, country, device} || 202 || fire-and-forget from the ad server; never blocks a page
+GET /v1/stats?ad_id=&from=&to=&granularity=minute|hour|day&group_by=country || || 200 aggregated stats
+GET /v1/campaigns/{id}/summary || || 200 campaign summary
 ```
 
-```
-RAW (immutable, source of truth)
-  Kafka topic: ad.events   (partitioned by ad_id, retention 7d)
-  → archived to S3/object storage, partitioned by date/hour  ← enables replay
-
-AGGREGATES (OLAP, columnar — Druid / ClickHouse / BigQuery)
-  PK: (ad_id, minute_bucket, country, device)
-      impressions, clicks, unique_users(HLL sketch), spend
-
-DEDUPE STATE (stream processor, RocksDB-backed)
-  event_id → seen   (TTL = watermark lag window)
-
-LATE/CORRECTION LOG
-  append-only record of adjustments applied after a window closed
+```schema
+# Raw · immutable, source of truth
+ad.events || || Kafka topic, partitioned by ad_id, retention 7d ||
+raw archive || || S3 / object storage, partitioned by date and hour || enables replay
+# Aggregates · OLAP, columnar (Druid / ClickHouse / BigQuery)
+aggregates || PK: (ad_id, minute_bucket, country, device) || impressions, clicks, unique_users (HLL sketch), spend ||
+# Dedupe state · stream processor, RocksDB-backed
+event_id → seen || || || TTL = watermark lag window
+# Late / correction log
+corrections || || append-only record of adjustments || applied after a window closed
 ```
 
 ---

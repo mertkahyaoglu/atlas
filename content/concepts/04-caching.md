@@ -34,7 +34,22 @@ With a 95% hit rate, 1ms cache, 50ms database: `0.95(1) + 0.05(50) = 3.45ms` ave
 
 ## 4.2 Where caches live
 
+```mermaid
+flowchart TB
+    Browser["Browser cache<br/>in the user's browser · zero network cost"]
+    CDN["CDN / edge cache<br/>geographically near the user"]
+    Proxy["Reverse proxy cache<br/>in front of app servers · Nginx, Varnish"]
+    AppC["Application cache<br/>in-process memory of the app server"]
+    Dist["Distributed cache<br/>shared Redis / Memcached cluster"]
+    DBC["Database cache<br/>the DB's own buffer pool / query cache"]
+    Origin[("Origin storage · disk")]
+    Browser --> CDN --> Proxy --> AppC --> Dist --> DBC --> Origin
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
 [Browser cache]        in the user's browser; zero network cost
       │
 [CDN / edge cache]     geographically near the user
@@ -49,6 +64,8 @@ With a 95% hit rate, 1ms cache, 50ms database: `0.95(1) + 0.05(50) = 3.45ms` ave
       │
 [Origin storage]       disk
 ```
+
+</details>
 
 Each layer closer to the user is faster but harder to invalidate — you cannot reach into a user's browser and delete something. This is why cache TTLs get shorter as you move toward the origin, and why you use content hashing in filenames (`app.a3f9c2.js`) for browser-cached assets: instead of invalidating, you change the URL.
 

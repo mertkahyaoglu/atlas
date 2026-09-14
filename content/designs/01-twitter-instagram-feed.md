@@ -49,27 +49,20 @@ Feed rows: 50M × 200 = 10B rows/day of references (~50B each = 500 GB/day)
 
 ## API / Model
 
+```api
+POST /v1/posts || {text, media_ids} || 201 post_id
+GET /v1/timeline/home?cursor=&limit=50 || || 200 home feed page
+GET /v1/users/{id}/posts?cursor=&limit=50 || || 200 user's posts
+POST /v1/users/{id}/follow || || 204
+DEL /v1/users/{id}/follow || || 204
 ```
-POST /v1/posts                      {text, media_ids}        → post_id
-GET  /v1/timeline/home?cursor=&limit=50
-GET  /v1/users/{id}/posts?cursor=&limit=50
-POST /v1/users/{id}/follow
-DEL  /v1/users/{id}/follow
-```
 
-```
-posts          PK: post_id (Snowflake, time-sortable)
-               author_id, text, media_urls, created_at, reply_to
-
-social_graph   PK: follower_id   SK: followee_id     (who I follow)
-               PK: followee_id   SK: follower_id     (who follows me — second table,
-                                                      denormalized for fan-out lookup)
-
-user_timeline  PK: user_id       SK: post_id DESC     ← the precomputed feed
-               post_id, author_id          (reference only, not the post body)
-
-users          PK: user_id
-               name, follower_count, is_celebrity (bool, derived from count)
+```schema
+posts || PK: post_id || author_id, text, media_urls, created_at, reply_to || post_id is a Snowflake, so it is time-sortable
+social_graph || PK: follower_id SK: followee_id || || who I follow
+social_graph (reverse) || PK: followee_id SK: follower_id || || who follows me; a second, denormalized table for fan-out lookup
+user_timeline || PK: user_id SK: post_id DESC || post_id, author_id || the precomputed feed; references only, not the post body
+users || PK: user_id || name, follower_count, is_celebrity || is_celebrity is a bool derived from follower_count
 ```
 
 Two directions of the social graph are stored separately because fan-out needs "who follows X" while the UI needs "who does X follow". Same data, two access patterns, two tables. That's Module 2 in action.
@@ -95,7 +88,7 @@ flowchart TB
 
     subgraph FANOUT ["Fan-out service · consumer group"]
         direction TB
-        Decide{"author follower count<br/>&gt; 100k ?"}
+        Decide{"author follower count<br/>> 100k ?"}
         Eager["Fan out to followers<br/>batched idempotent writes<br/>PK = user_id + post_id"]
         Skip["Skip eager fan-out<br/>mark for read-time pull"]
         Decide -- "no · ordinary user" --> Eager

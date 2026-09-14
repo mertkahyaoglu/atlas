@@ -16,7 +16,16 @@ This is the single most reused pattern family in system design interviews. Twitt
 
 One event happens. Many people need to know about it.
 
+```mermaid
+flowchart TB
+    Alice([Alice posts]) --> Event["1 event<br/>fan-out multiplier = number of followers"]
+    Event --> Bob["Bob"] & Carl["Carl"] & Dan["Dan"] & Eve["Eve"] & Fay["Fay"] & More["... 1,000 followers"]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
       Alice posts
            │
            ▼
@@ -28,6 +37,8 @@ One event happens. Many people need to know about it.
    ▼   ▼   ▼   ▼   ▼   ▼
   Bob Carl Dan Eve Fay ... (1,000 followers)
 ```
+
+</details>
 
 The **fan-out multiplier** is the ratio of downstream deliveries to upstream events. It's the number that determines your entire architecture. With a multiplier of 10, everything is easy. With a multiplier of 100 million (a celebrity posting), naive approaches fall apart.
 
@@ -112,7 +123,30 @@ Meanwhile fan-out on read is wrong for almost everyone, because it makes the com
 
 **The hybrid is the answer, and volunteering it unprompted is the highest-value thing you can do in this class of question:**
 
+```mermaid
+flowchart TB
+    Post([Author posts]) --> Check{"follower count<br/>above threshold T?"}
+    Check -- "NO" --> Push["FAN-OUT ON WRITE<br/>push into each follower's feed"]
+    Check -- "YES · celebrity" --> Skip["DO NOT FAN OUT<br/>store the post once<br/>mark the author celebrity"]
+
+    subgraph READ ["Read path · Bob opens the app"]
+        direction TB
+        R1["1 · read Bob's precomputed feed<br/>cheap, one partition"]
+        R2["2 · find celebrities Bob follows<br/>usually a handful"]
+        R3["3 · pull their recent posts directly<br/>small scatter-gather"]
+        R4["4 · merge the two lists, sort, return"]
+        R1 --> R2 --> R3 --> R4
+    end
+    Push -.-> R1
+    Skip -.-> R3
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Check hot
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   ┌──────────────────────────────────────────────────────┐
   │ Is the author's follower count above threshold T?    │
   └──────────────┬───────────────────────┬───────────────┘
@@ -131,6 +165,8 @@ Meanwhile fan-out on read is wrong for almost everyone, because it makes the com
      4. Merge the two lists, sort, return
 ```
 
+</details>
+
 The insight is that these two costs are inversely distributed. A user follows many ordinary accounts (so precomputing is worth it) but only a few celebrities (so pulling at read time is cheap). The hybrid picks the cheap side of each.
 
 **Details an interviewer may probe:**
@@ -142,7 +178,24 @@ The insight is that these two costs are inversely distributed. A user follows ma
 
 ## 6.6 The fan-out service itself
 
+```mermaid
+flowchart TB
+    Src([Event source]) --> Topic{{"Kafka topic · activity.events"}}
+    subgraph Workers ["Fan-out workers · horizontally scaled consumer group"]
+        direction TB
+        S1["1 · read event"] --> S2["2 · look up audience"]
+        S2 --> S3["3 · filter · muted, prefs, dedupe"]
+        S3 --> S4["4 · batch write"]
+    end
+    Topic --> S1
+    Graph["subscription / graph service"] --> S2
+    S4 --> Store[("per-user feed store<br/>partition key = user_id<br/>sort key = timestamp")]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   [ Event source ] ──► Kafka topic "activity.events"
                              │
                              ▼
@@ -160,6 +213,8 @@ The insight is that these two costs are inversely distributed. A user follows ma
                     partition key = user_id
                     sort key      = timestamp
 ```
+
+</details>
 
 Design points worth stating:
 

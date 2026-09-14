@@ -50,21 +50,21 @@ URLs seen (dedupe): 100B+ URLs → storing them as strings ≈ 10+ TB
 
 Internal system, so the "API" is the queue contracts:
 
-```
+```api
+# Queue contracts
 frontier.push(url, priority, discovered_at)
-frontier.pop(worker_id) → url          (politeness-aware)
+frontier.pop(worker_id) || || url || politeness-aware
 content.put(url, html, fetched_at, checksum)
 ```
 
-```
-url_seen        Bloom filter (in RAM, sharded) + backing store for confirmation
-robots_cache    domain → parsed rules, TTL ~24h
-dns_cache       hostname → IPs, TTL honoring the record
-page_store      PK: url_hash — html (compressed, in object storage), headers,
-                fetched_at, http_status, content_checksum
-content_hash    simhash/checksum → canonical_url   (near-duplicate detection)
-domain_state    domain → last_fetch_ts, crawl_delay, error_rate, politeness_budget
-schedule        PK: url_hash — next_crawl_at, change_frequency_estimate
+```schema
+url_seen || || Bloom filter, in RAM and sharded || a backing store confirms positives
+robots_cache || || domain → parsed rules || TTL ~24h
+dns_cache || || hostname → IPs || TTL honors the DNS record
+page_store || PK: url_hash || html, headers, fetched_at, http_status, content_checksum || html is compressed, in object storage
+content_hash || || simhash / checksum → canonical_url || near-duplicate detection
+domain_state || || domain → last_fetch_ts, crawl_delay, error_rate, politeness_budget ||
+schedule || PK: url_hash || next_crawl_at, change_frequency_estimate ||
 ```
 
 ---

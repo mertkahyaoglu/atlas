@@ -12,7 +12,7 @@ export default function HomePage() {
       <TopBar />
       <main className="mx-auto max-w-shell px-4 pb-24 pt-10 sm:px-8">
         <Hero />
-        <div className="mt-10">
+        <div id="library" className="mt-10">
           <HomeView concepts={concepts} designs={designs} />
         </div>
       </main>

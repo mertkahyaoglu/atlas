@@ -48,21 +48,16 @@ Key space: base62^7 = 3.5 × 10^12  → 100M/day for ~95 years. 7 chars is enoug
 
 ## API / Model
 
-```
-POST /v1/urls          {long_url, custom_alias?, expires_at?}  → {short_url}
-GET  /{code}           → 302 redirect to long_url
-GET  /v1/urls/{code}/stats                                      → click analytics
+```api
+POST /v1/urls || {long_url, custom_alias?, expires_at?} || 201 {short_url}
+GET /{code} || || 302 410 redirect to long_url || 410 Gone once the link has expired
+GET /v1/urls/{code}/stats || || 200 click analytics
 ```
 
-```
-urls    PK: short_code (7-char base62)     ← partition key, uniformly hashed
-        long_url, created_at, expires_at, creator_id, is_custom
-
-clicks_raw  (append-only, Kafka → object storage / warehouse)
-        short_code, ts, ip_country, referrer, user_agent, device
-
-clicks_agg  PK: short_code   SK: date
-        count, top_countries, top_referrers
+```schema
+urls || PK: short_code || long_url, created_at, expires_at, creator_id, is_custom || 7-char base62 partition key, uniformly hashed
+clicks_raw || || short_code, ts, ip_country, referrer, user_agent, device || append-only: Kafka → object storage / warehouse
+clicks_agg || PK: short_code SK: date || count, top_countries, top_referrers ||
 ```
 
 Note the partition key: `short_code` is effectively random (base62 of a hashed/encoded counter), so it distributes perfectly with no hot-partition risk. That's a rare gift — say so.

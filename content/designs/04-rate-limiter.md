@@ -46,25 +46,25 @@ State per identity: ~50 bytes → 2.5 GB, fits comfortably in Redis memory
 
 ## API / Model
 
+```api
+# Internal check · called by the gateway, not a public API
+allow(identity, endpoint) || || {allowed: bool, remaining: int, reset_at: ts, retry_after: int}
+# Rule configuration
+PUT /admin/limits || {scope, identity_tier, endpoint_pattern, limit, window_sec, burst} || 200
+# Over the limit
+429 Too Many Requests || || || sent with the X-RateLimit-* and Retry-After headers
 ```
-Internal check (called by gateway, not a public API):
-  allow(identity, endpoint) → {allowed: bool, remaining: int, reset_at: ts, retry_after: int}
 
-Rule configuration:
-  PUT /admin/limits   {scope, identity_tier, endpoint_pattern, limit, window_sec, burst}
-```
-
-```
-Redis keys
-  rl:{identity}:{endpoint}:{window}    → counter or token-bucket state
-  TTL = window length (self-cleaning; no GC job needed)
-
-Rules (config service, cached locally with 30s refresh)
-  tier → {limit, window, burst, endpoint_overrides{}}
-
-Response headers
-  X-RateLimit-Limit / -Remaining / -Reset
-  Retry-After: 30
+```schema
+# Redis keys
+rl:{identity}:{endpoint}:{window} || || counter or token-bucket state || TTL = window length, so keys clean themselves up; no GC job needed
+# Rules · config service, cached locally with 30s refresh
+tier || || {limit, window, burst, endpoint_overrides{}} ||
+# Response headers
+X-RateLimit-Limit || || requests allowed per window ||
+X-RateLimit-Remaining || || requests left in the current window ||
+X-RateLimit-Reset || || when the window resets ||
+Retry-After || || 30 || seconds to wait before retrying
 ```
 
 TTL-based expiry is worth pointing out: the counters garbage-collect themselves, so there's no cleanup job and memory is bounded by *active* identities, not total identities.

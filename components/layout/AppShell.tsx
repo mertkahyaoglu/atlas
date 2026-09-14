@@ -10,9 +10,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const designs = getDocsByGroup("design").map(toMeta);
 
   return (
-    <div className="min-h-screen">
+    // clip, not hidden: hidden tooltips can't widen the page, and sticky still works.
+    <div className="min-h-screen overflow-x-clip">
       <Sidebar concepts={concepts} designs={designs} />
-      <div className="lg:pl-sidebar">{children}</div>
+      <div data-content className="transition-[padding] duration-200 lg:pl-sidebar">
+        {children}
+      </div>
     </div>
   );
 }

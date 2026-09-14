@@ -48,32 +48,23 @@ Connections per gateway node: ~50k → need ~1,000 gateway nodes
 
 ## API / Model
 
+```api
+# WebSocket · auth via token in handshake
+WS wss://chat.example.com/connect || || 101
++ → client sends: {type:"send", client_msg_id, conv_id, body}
++ ← server sends: {type:"message"|"receipt"|"presence", ...}
+# REST · history and setup
+GET /v1/conversations?cursor= || || 200 conversation list
+GET /v1/conversations/{id}/messages?cursor=&limit=50 || || 200 message page
+POST /v1/conversations || {member_ids[]} || 201 conversation_id
+POST /v1/conversations/{id}/read || {up_to_msg_id} || 204
 ```
-WebSocket  wss://chat.example.com/connect        (auth via token in handshake)
-  → client sends: {type:"send", client_msg_id, conv_id, body}
-  ← server sends: {type:"message"|"receipt"|"presence", ...}
 
-REST (history & setup)
-GET  /v1/conversations?cursor=
-GET  /v1/conversations/{id}/messages?cursor=&limit=50
-POST /v1/conversations                {member_ids[]}
-POST /v1/conversations/{id}/read      {up_to_msg_id}
-```
-
-```
-messages        PK: conversation_id   SK: message_id (Snowflake, DESC)
-                sender_id, body, created_at, type
-                ← single partition per conversation = ordered, cheap range read
-
-conversations   PK: conversation_id
-                type (dm|group), member_count, last_message_id
-
-members         PK: user_id           SK: conversation_id
-                last_read_msg_id, muted, joined_at
-                ← "my conversation list" + unread computation
-
-inbox_queue     PK: user_id           SK: message_id     (undelivered only)
-                ← offline delivery buffer, rows deleted on ack
+```schema
+messages || PK: conversation_id SK: message_id (Snowflake, DESC) || sender_id, body, created_at, type || one partition per conversation = ordered, cheap range reads
+conversations || PK: conversation_id || type (dm|group), member_count, last_message_id ||
+members || PK: user_id SK: conversation_id || last_read_msg_id, muted, joined_at || powers "my conversation list" and unread counts
+inbox_queue || PK: user_id SK: message_id || undelivered messages only || offline delivery buffer; rows deleted on ack
 ```
 
 ---

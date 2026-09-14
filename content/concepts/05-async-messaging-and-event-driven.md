@@ -16,10 +16,24 @@ This module covers queues, pub/sub, event buses, Kafka, delivery guarantees, ret
 
 **Synchronous**: the caller waits for the callee to finish.
 
+```mermaid
+flowchart TB
+    User([User]) --> API["API"]
+    API --> Charge["Charge card"]
+    Charge --> Email["Send email"]
+    Email --> Analytics["Update analytics"]
+    Analytics --> Resp(["respond after ~3 s"])
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   User ──► API ──► Charge card ──► Send email ──► Update analytics ──► respond
           (user waits for ALL of this: ~3 seconds)
 ```
+
+</details>
 
 Three problems here:
 1. **Latency** — the user waits for work they don't care about (analytics).
@@ -28,13 +42,29 @@ Three problems here:
 
 **Asynchronous**: the caller hands work off and returns immediately.
 
+```mermaid
+flowchart LR
+    User([User]) --> API["API"]
+    API --> Charge["Charge card"]
+    Charge -- "publish" --> Topic{{"order.placed"}}
+    Charge -- "respond in ~200 ms" --> Resp(["respond"])
+    Topic --> EW["Email worker"]
+    Topic --> AW["Analytics worker"]
+    Topic --> IW["Inventory worker"]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   User ──► API ──► Charge card ──► publish "order.placed" ──► respond (200ms)
                                           │
                                           ├──► Email worker
                                           ├──► Analytics worker
                                           └──► Inventory worker
 ```
+
+</details>
 
 Now the user waits only for what's essential. The email service being down delays emails; it doesn't break checkout. And a spike queues up instead of overwhelming workers.
 
@@ -52,11 +82,24 @@ These terms are used loosely in the wild. Be precise.
 
 One message is consumed by exactly **one** consumer. Multiple consumers form a pool that shares the work.
 
+```mermaid
+flowchart LR
+    P([Producer]) --> Q{{"queue · m1 m2 m3 m4 m5"}}
+    Q -- "m1, m4" --> WA["Worker A"]
+    Q -- "m2, m5" --> WB["Worker B"]
+    Q -- "m3" --> WC["Worker C"]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Producer ──► [ m1 m2 m3 m4 m5 ] ──┬──► Worker A  (gets m1, m4)
                                      ├──► Worker B  (gets m2, m5)
                                      └──► Worker C  (gets m3)
 ```
+
+</details>
 
 Purpose: **distributing work**. Adding workers increases throughput. Examples: RabbitMQ, AWS SQS, Celery.
 
@@ -64,11 +107,24 @@ Purpose: **distributing work**. Adding workers increases throughput. Examples: R
 
 One message is delivered to **every** interested subscriber. Each subscriber gets its own copy.
 
+```mermaid
+flowchart LR
+    P([Publisher]) --> T{{"topic · m1"}}
+    T -- "m1" --> Em["Email service"]
+    T -- "m1" --> An["Analytics service"]
+    T -- "m1" --> Se["Search indexer"]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
                           ┌──► Email service      (gets m1)
   Publisher ──► [ m1 ] ───┼──► Analytics service  (gets m1)
                           └──► Search indexer     (gets m1)
 ```
+
+</details>
 
 Purpose: **notifying multiple independent consumers**. The publisher doesn't know or care who's listening, which is the decoupling benefit. Examples: Redis pub/sub, AWS SNS, Google Pub/Sub, and Kafka (via consumer groups).
 
@@ -165,13 +221,30 @@ Retrying immediately makes things worse — a struggling service gets hammered b
 
 A DLQ is a separate queue that holds messages which have exhausted their retries.
 
+```mermaid
+flowchart LR
+    Q{{"main queue"}} --> W["worker"]
+    W -- "fail" --> R1["retry"]
+    R1 -- "fail" --> R2["retry"]
+    R2 -- "fail" --> DLQ[("DLQ")]
+    DLQ --> Fix["human / automated<br/>inspection and fix"]
+    Fix -. "replay" .-> Q
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class DLQ hot
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   main queue ──► worker ──fail──► retry ──fail──► retry ──fail──► [ DLQ ]
                                                                      │
                                                           human/automated
                                                           inspection, fix,
                                                           and replay
 ```
+
+</details>
 
 Why it exists: without a DLQ, a single "poison pill" message (one that crashes the consumer every time) blocks the queue forever, because the consumer keeps picking it up, dying, and restarting. The DLQ gets the bad message out of the way so the rest of the traffic flows.
 
@@ -203,7 +276,29 @@ Strategies, from best to worst:
 
 An architecture where services communicate primarily by **producing and consuming events** rather than calling each other directly.
 
+```mermaid
+flowchart TB
+    subgraph REQ ["Request-driven · OrderService must know every consumer"]
+        direction LR
+        O1["OrderService"] --> I1["InventoryService"]
+        O1 --> E1["EmailService"]
+        O1 --> A1["AnalyticsService"]
+    end
+    subgraph EVT ["Event-driven · new consumers need no upstream change"]
+        direction LR
+        O2["OrderService"] -- "publishes" --> T{{"order.placed"}}
+        T --> I2["InventoryService"]
+        T --> E2["EmailService"]
+        T --> A2["AnalyticsService"]
+        T -.-> N2["new service"]
+    end
+    REQ ~~~ EVT
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   REQUEST-DRIVEN (services call each other):
     OrderService ──► InventoryService
                  ──► EmailService
@@ -217,6 +312,8 @@ An architecture where services communicate primarily by **producing and consumin
                                                   ├──► AnalyticsService
                                                   └──► (new service, no change upstream)
 ```
+
+</details>
 
 **Benefits:** producers don't know their consumers, so you add capabilities without modifying existing services. Services fail independently. Traffic spikes are absorbed by the log. Events are a durable audit trail.
 
@@ -236,7 +333,22 @@ Naming events in the past tense (`order.placed`, not `place.order`) is a small t
 
 Instead of storing current state, store the **full sequence of events** that produced it. Current state is derived by replaying them.
 
+```mermaid
+flowchart LR
+    subgraph TRAD ["Traditional"]
+        Bal1[("account_balance = 70")]
+    end
+    subgraph ES ["Event sourced"]
+        direction TB
+        Ev1["Deposited 100"] --> Ev2["Withdrew 50"] --> Ev3["Deposited 20"]
+    end
+    Ev3 -- "fold" --> Bal2(["balance = 70"])
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   TRADITIONAL:  account_balance = 70
 
   EVENT SOURCED:
@@ -245,6 +357,8 @@ Instead of storing current state, store the **full sequence of events** that pro
      [ Deposited 20  ]
      ──► fold ──► balance = 70
 ```
+
+</details>
 
 **Benefits:** complete audit history for free (crucial in finance and healthcare), ability to reconstruct state at any past point in time ("what did this look like last Tuesday?"), ability to build entirely new read models by replaying history, and natural debugging of how a bad state came to be.
 
@@ -256,7 +370,17 @@ Instead of storing current state, store the **full sequence of events** that pro
 
 Separate the model used for **writes** from the model used for **reads**.
 
+```mermaid
+flowchart LR
+    W([writes]) --> WM["WRITE MODEL<br/>normalized, validated"]
+    WM -- "events / sync" --> RM["READ MODEL(S)<br/>denormalized, query-optimized"]
+    RM --> R([reads])
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
        writes                              reads
          │                                   ▲
          v                                   │
@@ -266,6 +390,8 @@ Separate the model used for **writes** from the model used for **reads**.
   │ validated  │                    │ query-optimized   │
   └────────────┘                    └──────────────────┘
 ```
+
+</details>
 
 Why: reads and writes have genuinely different requirements. Writes need validation, normalization, and transactional integrity. Reads need denormalized, pre-joined shapes and often 100x the throughput. Forcing one model to serve both means compromising on both.
 

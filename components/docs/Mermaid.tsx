@@ -18,6 +18,12 @@ function themeVariables(dark: boolean) {
         clusterBorder: "#253242",
         titleColor: "#d7dee8",
         edgeLabelBackground: "#101720",
+        textColor: "#d7dee8",
+        noteBkgColor: "#1d2734",
+        noteBorderColor: "#35455a",
+        noteTextColor: "#d7dee8",
+        attributeBackgroundColorOdd: "#161e29",
+        attributeBackgroundColorEven: "#1d2734",
         fontSize: "13px",
       }
     : {
@@ -32,8 +38,31 @@ function themeVariables(dark: boolean) {
         clusterBorder: "#dbe2ea",
         titleColor: "#16202c",
         edgeLabelBackground: "#ffffff",
+        textColor: "#16202c",
+        noteBkgColor: "#f7f9fb",
+        noteBorderColor: "#c2ccd8",
+        noteTextColor: "#16202c",
+        attributeBackgroundColorOdd: "#ffffff",
+        attributeBackgroundColorEven: "#f2f4f7",
         fontSize: "13px",
       };
+}
+
+/**
+ * With SVG labels Mermaid sanitizes label text into serialized HTML and then
+ * writes it as textContent, so `>` shows up as a literal "&gt;". Decode the
+ * common entities back; assigning textContent never parses markup.
+ */
+const ENTITIES: Record<string, string> = { "&gt;": ">", "&lt;": "<", "&amp;": "&", "&quot;": '"', "&#39;": "'" };
+
+function decodeLabelEntities(root: HTMLElement) {
+  root.querySelectorAll("text, tspan").forEach((el) => {
+    el.childNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent?.includes("&")) {
+        node.textContent = node.textContent.replace(/&(gt|lt|amp|quot|#39);/g, (m) => ENTITIES[m]);
+      }
+    });
+  });
 }
 
 export function Mermaid({ chart }: { chart: string }) {
@@ -53,16 +82,20 @@ export function Mermaid({ chart }: { chart: string }) {
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
+        // Strict mode sanitizes the SVG, which strips HTML inside <foreignObject>
+        // and leaves every label blank. Plain SVG <text> labels survive it.
+        htmlLabels: false,
         theme: "base",
         fontFamily: "var(--font-mono), monospace",
         themeVariables: themeVariables(theme === "dark"),
-        flowchart: { curve: "basis", nodeSpacing: 36, rankSpacing: 46, padding: 12 },
+        flowchart: { htmlLabels: false, curve: "basis", nodeSpacing: 36, rankSpacing: 46, padding: 12 },
       });
 
       try {
         const { svg } = await mermaid.render(graphId, chart);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
+          decodeLabelEntities(containerRef.current);
           setError(null);
         }
       } catch (err) {

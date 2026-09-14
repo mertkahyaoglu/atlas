@@ -7,6 +7,7 @@ import { DocHeader } from "@/components/docs/DocHeader";
 import { Markdown } from "@/components/docs/Markdown";
 import { PrevNext } from "@/components/docs/PrevNext";
 import { Toc } from "@/components/docs/Toc";
+import { ReadingProgress } from "@/components/docs/ReadingProgress";
 
 interface PageProps {
   params: { slug: string };
@@ -34,7 +35,7 @@ export default function DocPage({ params }: PageProps) {
       <TopBar crumb={doc.title} />
 
       <div className="mx-auto flex max-w-shell gap-12 px-4 pb-24 pt-10 sm:px-8">
-        <main className="min-w-0 flex-1">
+        <main id="doc-main" className="min-w-0 flex-1">
           <DocHeader doc={toMeta(doc)} />
           <article className="doc">
             <Markdown content={doc.content} />
@@ -43,7 +44,10 @@ export default function DocPage({ params }: PageProps) {
         </main>
 
         <div className="hidden w-toc shrink-0 xl:block">
-          <Toc entries={toc} />
+          <div className="sticky top-20 space-y-8">
+            <ReadingProgress targetId="doc-main" />
+            <Toc entries={toc} />
+          </div>
         </div>
       </div>
     </div>
