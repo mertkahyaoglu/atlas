@@ -1,0 +1,236 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Theme tokens. Dark is the default because this is long-form night reading;
+   light exists for daylight. Accents encode section membership:
+   teal = concept module, amber = design. They are never decorative.
+--------------------------------------------------------------------------- */
+
+:root {
+  --font-sans: "IBM Plex Sans";
+  --font-mono: "IBM Plex Mono";
+
+  --canvas: #f2f4f7;
+  --surface: #ffffff;
+  --raised: #e9edf2;
+  --rule: #dbe2ea;
+  --rule-strong: #c2ccd8;
+  --ink: #16202c;
+  --ink-muted: #56657a;
+  --ink-faint: #8593a6;
+  --concept: #147d70;
+  --design: #9a6410;
+  --concept-soft: rgba(20, 125, 112, 0.1);
+  --design-soft: rgba(154, 100, 16, 0.1);
+}
+
+.dark {
+  --canvas: #101720;
+  --surface: #161e29;
+  --raised: #1d2734;
+  --rule: #253242;
+  --rule-strong: #35455a;
+  --ink: #d7dee8;
+  --ink-muted: #8a97a8;
+  --ink-faint: #64728a;
+  --concept: #4fb8a8;
+  --design: #e8a33d;
+  --concept-soft: rgba(79, 184, 168, 0.12);
+  --design-soft: rgba(232, 163, 61, 0.12);
+}
+
+@layer base {
+  * {
+    border-color: var(--rule);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    font-size: 0.9375rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--concept-soft);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--concept);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--rule);
+    border-radius: 6px;
+    border: 3px solid var(--canvas);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--rule-strong);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Long-form document styling. Written by hand rather than via a prose plugin
+   so the vertical rhythm matches the type scale in tailwind.config.ts.
+--------------------------------------------------------------------------- */
+
+@layer components {
+  .doc {
+    @apply text-base text-ink;
+  }
+
+  .doc > * + * {
+    @apply mt-4;
+  }
+
+  .doc h2 {
+    @apply text-h2 font-semibold text-ink mt-14 mb-4 pb-2 border-b border-rule scroll-mt-24;
+  }
+
+  .doc h2:first-child {
+    @apply mt-0;
+  }
+
+  .doc h3 {
+    @apply text-h3 font-semibold text-ink mt-9 mb-3 scroll-mt-24;
+  }
+
+  .doc h4 {
+    @apply text-base font-semibold text-ink mt-6 mb-2 scroll-mt-24;
+  }
+
+  .doc p {
+    @apply max-w-reading;
+  }
+
+  .doc strong {
+    @apply font-semibold text-ink;
+  }
+
+  .doc em {
+    @apply italic text-inkMuted;
+  }
+
+  .doc a {
+    @apply text-[color:var(--accent)] underline decoration-from-font underline-offset-2;
+  }
+
+  .doc ul {
+    @apply max-w-reading space-y-2 pl-0 list-none;
+  }
+
+  .doc ol {
+    @apply max-w-reading space-y-2 pl-5 list-decimal marker:text-inkFaint marker:font-mono marker:text-tiny;
+  }
+
+  /* Dash markers instead of bullets: quieter, and reads as a schematic list. */
+  .doc ul > li {
+    @apply relative pl-5;
+  }
+  .doc ul > li::before {
+    content: "";
+    @apply absolute left-0 top-[0.7em] h-px w-2.5 bg-ruleStrong;
+  }
+
+  .doc li > ul,
+  .doc li > ol {
+    @apply mt-2;
+  }
+
+  .doc blockquote {
+    @apply max-w-reading border-l-2 pl-4 py-1 text-inkMuted italic;
+    border-color: var(--accent);
+  }
+
+  .doc hr {
+    @apply my-12 border-0 border-t border-rule;
+  }
+
+  .doc :not(pre) > code {
+    @apply font-mono text-[0.85em] px-1.5 py-0.5 rounded-sm bg-raised text-ink;
+  }
+
+  .doc table {
+    @apply w-full my-6 text-small border-collapse;
+  }
+
+  .doc thead th {
+    @apply text-left font-semibold text-inkMuted py-2 px-3 border-b border-ruleStrong align-bottom;
+  }
+
+  .doc tbody td {
+    @apply py-2.5 px-3 border-b border-rule align-top;
+  }
+
+  .doc tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .doc tbody tr:hover {
+    background: var(--raised);
+  }
+
+  .doc img {
+    @apply rounded max-w-full;
+  }
+}
+
+/* Mermaid injects its own <svg>; keep its type in the app's mono face. */
+.mermaid-host svg {
+  max-width: 100%;
+  height: auto;
+  font-family: var(--font-mono), monospace !important;
+}
+
+/* Collapsed plain-text fallback beneath each rendered diagram. */
+@layer components {
+  .doc details {
+    @apply my-6 max-w-none rounded border border-rule bg-surface;
+  }
+
+  .doc details > summary {
+    @apply cursor-pointer select-none px-4 py-2.5 text-tiny text-inkMuted transition-colors duration-fast hover:text-ink;
+  }
+
+  .doc details[open] > summary {
+    @apply border-b border-rule text-ink;
+  }
+
+  .doc details > *:not(summary) {
+    @apply px-4;
+  }
+
+  .doc details > div:last-child,
+  .doc details > pre:last-child {
+    @apply pb-4;
+  }
+}

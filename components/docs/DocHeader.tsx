@@ -1,0 +1,38 @@
+import { Clock } from "lucide-react";
+import type { DocMeta } from "@/lib/types";
+import { GroupBadge } from "@/components/ui/GroupBadge";
+import { Tag } from "@/components/ui/Tag";
+
+export function DocHeader({ doc }: { doc: DocMeta }) {
+  return (
+    <header className="mb-12 border-b border-rule pb-8">
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <GroupBadge group={doc.group} />
+        <span className="flex items-center gap-1.5 font-mono text-micro text-inkFaint">
+          <Clock className="h-3 w-3" aria-hidden />
+          {doc.readingMinutes} min
+        </span>
+      </div>
+
+      <h1 className="text-h1 font-semibold text-ink sm:text-display">{doc.title}</h1>
+      <p className="mt-4 max-w-reading text-lead text-inkMuted">{doc.summary}</p>
+
+      {doc.hardPart && (
+        <div className="mt-6 max-w-reading border-l-2 border-[color:var(--accent)] bg-[color:var(--accent-soft)] py-3 pl-4 pr-4">
+          <p className="text-small text-ink">
+            <span className="font-semibold">What they&rsquo;re really testing: </span>
+            {doc.hardPart}
+          </p>
+        </div>
+      )}
+
+      {doc.tags.length > 0 && (
+        <div className="mt-6 flex flex-wrap gap-1.5">
+          {doc.tags.map((tag) => (
+            <Tag key={tag} id={tag} />
+          ))}
+        </div>
+      )}
+    </header>
+  );
+}

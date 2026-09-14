@@ -1,0 +1,246 @@
+---
+group: "design"
+order: 3
+title: "URL Shortener"
+summary: "A hundred million links a day and a hundred to one read skew. The classic estimation warm-up."
+hardPart: "Generating short, unique, non-guessable keys without a central bottleneck — and recognising this is a cache problem, not a database problem."
+tags: ["estimation", "caching", "redis", "sharding"]
+---
+
+# 03 — URL Shortener (TinyURL / bit.ly)
+
+## Primary concepts and the hard part
+
+**Concepts:** unique ID generation, base62 encoding, extreme read:write skew, caching strategy, key-value storage, CDN/redirect semantics, analytics pipeline.
+
+**The hard part they're probing:** generating short, unique, non-guessable keys without a central bottleneck — and recognizing that this is a *cache* problem, not a database problem. It's also the classic estimation warm-up, so sloppy math is penalized heavily here.
+
+---
+
+## Requirements
+
+**Functional**
+- Shorten a long URL → short code
+- Redirect short code → original URL
+- Optional custom alias
+- Optional expiry
+- Basic click analytics
+
+**Non-functional**
+- Redirect p99 < 50ms (it's in the critical path of a page load)
+- Very high availability — a dead shortener breaks every link ever shared
+- Codes must not be predictable (enumerable codes leak private links)
+- Redirects vastly outnumber creations
+
+**Out of scope:** user accounts, link editing, malware scanning (mention it belongs).
+
+**Scale**
+```
+Creates:  100M/day  → 100M / 10^5 = 1,000/sec   (peak 3x = 3,000/sec)
+Reads:    100:1 ratio → 100,000/sec
+Storage:  ~500B/record × 100M/day = 50 GB/day → 18 TB/yr → ~90 TB over 5 yrs
+Bandwidth: 100k/sec × 500B = 50 MB/sec
+Key space: base62^7 = 3.5 × 10^12  → 100M/day for ~95 years. 7 chars is enough.
+```
+**Conclusions:** (a) 3,000 writes/sec fits one tuned Postgres — don't shard on day one, but design a shardable key. (b) 90 TB doesn't fit one box, so plan for partitioning. (c) The 100:1 ratio is the headline: this is a caching problem. A cache holding the hot 20% of links serves ~95% of traffic.
+
+---
+
+## API / Model
+
+```
+POST /v1/urls          {long_url, custom_alias?, expires_at?}  → {short_url}
+GET  /{code}           → 302 redirect to long_url
+GET  /v1/urls/{code}/stats                                      → click analytics
+```
+
+```
+urls    PK: short_code (7-char base62)     ← partition key, uniformly hashed
+        long_url, created_at, expires_at, creator_id, is_custom
+
+clicks_raw  (append-only, Kafka → object storage / warehouse)
+        short_code, ts, ip_country, referrer, user_agent, device
+
+clicks_agg  PK: short_code   SK: date
+        count, top_countries, top_referrers
+```
+
+Note the partition key: `short_code` is effectively random (base62 of a hashed/encoded counter), so it distributes perfectly with no hot-partition risk. That's a rare gift — say so.
+
+---
+
+## High-level architecture
+
+```mermaid
+flowchart TB
+    Cache[("Redis cluster<br/>code → long_url<br/>LRU + TTL")]
+
+    subgraph W ["Write path · 1k/sec"]
+        direction TB
+        Creator([Client]) --> WGW[API Gateway<br/>auth · abuse rate limit]
+        WGW --> Shorten[Shorten Service]
+        Shorten --> IDGen["ID generation<br/>ticket server hands out<br/>ranges of 10,000<br/>then base62 of scrambled counter"]
+        IDGen --> Store[("urls store<br/>PK = short_code<br/>conditional write")]
+        Store -- "write-through" --> Cache
+    end
+
+    subgraph R ["Read path · 100k/sec"]
+        direction TB
+        Browser([Browser]) --> LB[Load balancer]
+        LB --> Redirect[Redirect Service<br/>stateless · autoscaled]
+        Redirect --> Cache
+        Cache -- "~95% HIT" --> Resp["302 Found"]
+        Cache -- "~5% MISS" --> Replica[("urls store<br/>read replicas")]
+        Replica -- "populate" --> Cache
+        Resp --> Browser
+    end
+
+    Resp -. "fire and forget<br/>never blocks the redirect" .-> Clicks{{"Kafka · click events"}}
+    Clicks --> Flink["Stream processor<br/>tumbling windows"]
+    Flink --> Agg[("clicks_agg<br/>fast stats")]
+    Flink --> Warehouse[("Data warehouse<br/>raw analytics")]
+
+    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    class Store,Cache,Replica,Agg,Warehouse store
+```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
+                           ═══ WRITE PATH (1k/sec) ═══
+
+  [Client] ──POST /v1/urls──► ┌──────────────┐
+                               │ API Gateway  │ authn, rate limit (abuse control)
+                               └──────┬───────┘
+                                      ▼
+                          ┌────────────────────────┐
+                          │   SHORTEN SERVICE       │
+                          │                         │
+                          │  custom alias?          │
+                          │   YES → check uniqueness│
+                          │   NO  → get ID ─────────┼──┐
+                          │        encode base62    │  │
+                          └───────────┬─────────────┘  │
+                                      │                │
+                                      │    ┌───────────▼─────────────┐
+                                      │    │  ID GENERATION           │
+                                      │    │  ┌────────────────────┐  │
+                                      │    │  │ Option A: Snowflake│  │
+                                      │    │  │  64-bit, local, no │  │
+                                      │    │  │  coordination      │  │
+                                      │    │  ├────────────────────┤  │
+                                      │    │  │ Option B: Ticket   │  │
+                                      │    │  │  server hands out  │  │
+                                      │    │  │  ranges of 10,000  │  │
+                                      │    │  │  → local increment │  │
+                                      │    │  └────────────────────┘  │
+                                      │    │  then: base62(id ⊕ salt) │
+                                      │    │        → non-sequential  │
+                                      │    └──────────────────────────┘
+                                      ▼
+                        ┌──────────────────────────┐
+                        │  urls store              │
+                        │  key-value / Cassandra   │
+                        │  PK = short_code         │
+                        │  (conditional write to   │
+                        │   guarantee uniqueness)  │
+                        └────────────┬─────────────┘
+                                     │ write-through
+                                     ▼
+                        ┌──────────────────────────┐
+                        │  Redis cache             │
+                        └──────────────────────────┘
+
+
+                        ═══ READ PATH (100k/sec) ═══
+
+  [Browser] ──GET /abc1234──► ┌──────────────┐
+                               │     CDN      │  cache 302 w/ short TTL
+                               └──────┬───────┘  (optional; see trade-offs)
+                                      │ miss
+                                      ▼
+                               ┌──────────────┐
+                               │ Load Balancer│
+                               └──────┬───────┘
+                                      ▼
+                        ┌──────────────────────────┐
+                        │   REDIRECT SERVICE        │  stateless, autoscaled
+                        └──────────┬───────────────┘
+                                   │
+                        ┌──────────▼───────────┐
+                        │  Redis cluster        │   ~95% HIT
+                        │  code → long_url      │   LRU + TTL
+                        └──────┬───────┬────────┘
+                          HIT  │       │ MISS (~5%)
+                               │       ▼
+                               │  ┌──────────────────┐
+                               │  │  urls store      │
+                               │  │  (read replicas) │
+                               │  └────────┬─────────┘
+                               │           │ populate cache
+                               │           ▼
+                               │      ┌──────────┐
+                               └─────►│ 302 Found│──► browser follows
+                                      └────┬─────┘
+                                           │ fire-and-forget (async!)
+                                           ▼
+                                ┌────────────────────┐
+                                │ Kafka "click"      │
+                                └─────────┬──────────┘
+                                          ▼
+                        ┌────────────────────────────────┐
+                        │  Stream processor (Flink)       │
+                        │  tumbling windows → aggregates  │
+                        └──────┬──────────────┬───────────┘
+                               ▼              ▼
+                     ┌────────────────┐  ┌──────────────┐
+                     │  clicks_agg    │  │ Data warehouse│
+                     │  (fast stats)  │  │ (raw, BigQuery)│
+                     └────────────────┘  └──────────────┘
+```
+
+</details>
+
+---
+
+## Trade-offs and deep dives
+
+**ID generation: three approaches, pick one and defend it.**
+
+| Approach | How | Why / why not |
+|---|---|---|
+| **Hash the URL** (MD5 → take 7 chars) | deterministic, no coordination | Collisions are inevitable at 10^11 records; requires collision check + retry loop, and identical URLs map to the same code (sometimes desired, sometimes a privacy leak) |
+| **Counter + base62** | central or ranged counter, encode | No collisions ever, shortest possible codes. But sequential IDs are **enumerable** — scrape every link by counting up |
+| **Snowflake + base62** | 64-bit local ID | No coordination, no collisions, but 64 bits → 11 base62 chars, longer than needed |
+
+**The pragmatic answer:** ticket-server ranges (each app node pre-fetches 10,000 IDs and increments locally, so coordination happens once per 10,000 creates, not per create), then **scramble the counter before encoding** — XOR with a secret, or apply a Feistel permutation — so codes are unguessable while collisions remain impossible. Gaps from unused ranges when a node dies are harmless.
+
+**Why base62.** `[0-9a-zA-Z]` = 62 symbols, all URL-safe, no escaping. 62^7 ≈ 3.5 trillion. Consider excluding visually ambiguous characters (0/O, 1/l/I) if links are ever typed by hand — that drops you to base58 and you should mention the trade.
+
+**301 vs 302 — a real question, not trivia.**
+- **301 Permanent**: browsers cache it aggressively, so repeat clicks never touch your servers. Great for load, but you lose all analytics after the first click, and you can never change the destination.
+- **302 Found**: every click hits you. You keep analytics and can update or expire links.
+
+Choose **302** for an analytics product. Say why.
+
+**Should the CDN cache redirects?** Only with short TTLs, and only if you accept losing per-click analytics for cached hits. Most shorteners skip CDN caching of the redirect itself for exactly this reason — the analytics *are* the product. This is a nice place to show that a technically-better-performing option can be the wrong product choice.
+
+**Analytics must never be synchronous.** Fire the click event to Kafka and return the 302 immediately. The user is waiting on a page load; they must not wait on an analytics write. If Kafka is down, drop the event and serve the redirect — availability of the redirect outranks completeness of analytics. That's a deliberate, statable priority.
+
+**Caching strategy.** Cache-aside with LRU + TTL. Write-through on create so a freshly-created link is warm (people click their own link immediately after shortening). Hit rate is the primary metric; it should sit above 90%.
+
+**Custom aliases** are the one place you need strong consistency: two users must not both claim `/sale`. Use a conditional write (`IF NOT EXISTS`) rather than read-then-write, which races.
+
+**Deletion and expiry.** Don't scan for expired rows. Set a TTL on the storage row (Cassandra/DynamoDB do this natively) and check `expires_at` at read time. Return 410 Gone rather than 404 so it's distinguishable.
+
+---
+
+## Possible follow-up questions
+
+- *How do you prevent abuse (phishing, malware)?* Rate limit per account/IP at the gateway; run URLs against a reputation API asynchronously after creation and disable flagged links; add an interstitial warning page for low-reputation domains.
+- *Two users shorten the same URL — same code or different?* Different by default. Sharing a code leaks that someone else shortened it and makes per-user analytics impossible. Dedupe only if the product explicitly wants it.
+- *How would you shard the database?* Hash-partition on `short_code` — already uniform, no hot partitions, and every lookup is a point query carrying the partition key. This is the easy case; contrast it with a design where the natural key is skewed.
+- *What breaks at 10x?* Not much — this design scales almost linearly because there's no fan-out and no coordination on the read path. The realistic limits are cache memory and the click-event pipeline.
+- *How do you make it globally fast?* Read replicas per region plus regional Redis. Writes route to a home region; the read path tolerates replication lag since a link is rarely clicked in another continent milliseconds after creation.
+- *Custom domains for enterprise customers?* Cache key becomes `(domain, code)`; store the domain→tenant mapping and validate TLS via a certificate management service.
