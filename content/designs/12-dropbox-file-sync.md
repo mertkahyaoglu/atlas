@@ -50,31 +50,21 @@ Metadata ops:     far higher QPS than byte transfers — the metadata service
 
 ## API / Model
 
+```api
+POST /v1/files/prepare || {path, chunk_hashes[]} || 200 {missing_chunks[]} || dedupe check
+PUT <presigned url> || || 200 || upload only the missing chunks, in parallel
+POST /v1/files/commit || {path, chunk_hashes[], size, mtime} || 201 {file_id, version}
+GET /v1/delta?cursor= || || 200 changes since cursor || the sync primitive
+GET /v1/files/{id}/versions || || 200 version list
+POST /v1/shares || {file_id, user_id, permission} || 201
 ```
-POST /v1/files/prepare      {path, chunk_hashes[]}  → {missing_chunks[]}  ← dedupe check
-PUT  <presigned url>        (upload only missing chunks, in parallel)
-POST /v1/files/commit       {path, chunk_hashes[], size, mtime} → {file_id, version}
-GET  /v1/delta?cursor=      → changes since cursor (the sync primitive)
-GET  /v1/files/{id}/versions
-POST /v1/shares             {file_id, user_id, permission}
-```
 
-```
-files        PK: (user_id, file_id)
-             path, size, mtime, current_version, is_deleted, parent_folder_id
-
-versions     PK: (file_id, version)
-             chunk_list[] (ordered hashes), created_at, created_by, size
-
-chunks       PK: chunk_hash (SHA-256 of content)
-             storage_url, size, refcount
-             ← GLOBAL, content-addressed, shared across ALL users
-
-devices      PK: (user_id, device_id) — last_sync_cursor, last_seen
-
-journal      PK: user_id  SK: seq (monotonic)
-             file_id, change_type, version, ts
-             ← the delta feed clients read from
+```schema
+files || PK: (user_id, file_id) || path, size, mtime, current_version, is_deleted, parent_folder_id ||
+versions || PK: (file_id, version) || chunk_list[] (ordered hashes), created_at, created_by, size ||
+chunks || PK: chunk_hash || storage_url, size, refcount || SHA-256 of the content; global, content-addressed, shared across all users
+devices || PK: (user_id, device_id) || last_sync_cursor, last_seen ||
+journal || PK: user_id SK: seq || file_id, change_type, version, ts || monotonic seq; the delta feed clients read from
 ```
 
 The `chunks` table being global and keyed by content hash is the whole dedupe story: if any user anywhere has already uploaded a chunk with that hash, nobody uploads it again.

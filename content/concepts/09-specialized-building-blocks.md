@@ -60,7 +60,26 @@ Properties: effectively unlimited capacity, very high durability (S3 advertises 
 
 **The standard pattern to describe for uploads:**
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as API
+    participant OS as Object storage
+    participant W as Worker
+    participant DB as DB
+    C->>API: 1 · request upload URL
+    API-->>C: 2 · signed URL, time-limited
+    C->>OS: 3 · upload bytes directly
+    Note over C,OS: your servers never touch the bytes
+    OS-)W: 4 · completion event
+    Note over W: 5 · thumbnails, transcode, virus scan
+    W->>DB: 6 · save metadata
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   1. Client asks your API for a presigned upload URL
   2. API checks permissions, returns a time-limited signed URL
   3. Client uploads DIRECTLY to object storage  ◄── your servers never touch the bytes
@@ -68,6 +87,8 @@ Properties: effectively unlimited capacity, very high durability (S3 advertises 
   5. A worker processes it (thumbnails, transcoding, virus scan)
   6. Metadata (URL, size, owner, status) is stored in your database
 ```
+
+</details>
 
 The point of step 3 is that routing gigabytes through your application servers is wasteful and turns them into a bandwidth bottleneck. Presigned URLs are the answer, and knowing them is a reliable positive signal.
 
@@ -154,7 +175,15 @@ You need unique IDs across many machines. Options:
 
 **Snowflake** — the standard interview answer. A 64-bit integer partitioned as:
 
-```
+| Field | Sign | Timestamp | Machine | Sequence |
+|---|---|---|---|---|
+| Bits | 1 | 41 | 10 | 12 |
+| Meaning | unused sign bit | milliseconds, ~69 years | 1,024 machines | 4,096 IDs per ms per machine |
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   ┌─┬────────────────────────┬──────────┬─────────────┐
   │0│   timestamp (41 bits)  │ machine  │  sequence   │
   │ │                        │ (10 bits)│  (12 bits)  │
@@ -162,6 +191,8 @@ You need unique IDs across many machines. Options:
     unused    ~69 years        1024        4096 IDs per
     sign bit  of millis        machines    ms per machine
 ```
+
+</details>
 
 Properties: no coordination needed at generation time (each machine has its own ID), roughly time-sortable (because the timestamp is the high-order bits, so IDs increase over time and index inserts stay sequential), and compact at 64 bits.
 

@@ -26,6 +26,23 @@
   --design: #9a6410;
   --concept-soft: rgba(20, 125, 112, 0.1);
   --design-soft: rgba(154, 100, 16, 0.1);
+
+  /* Status tones for HTTP method and status badges. */
+  --tone-green: #1a7f4e;
+  --tone-green-soft: rgba(26, 127, 78, 0.08);
+  --tone-green-line: rgba(26, 127, 78, 0.35);
+  --tone-blue: #1f6fb2;
+  --tone-blue-soft: rgba(31, 111, 178, 0.08);
+  --tone-blue-line: rgba(31, 111, 178, 0.35);
+  --tone-amber: #9a6410;
+  --tone-amber-soft: rgba(154, 100, 16, 0.08);
+  --tone-amber-line: rgba(154, 100, 16, 0.35);
+  --tone-red: #c2362f;
+  --tone-red-soft: rgba(194, 54, 47, 0.08);
+  --tone-red-line: rgba(194, 54, 47, 0.35);
+  --tone-violet: #6d4fd1;
+  --tone-violet-soft: rgba(109, 79, 209, 0.08);
+  --tone-violet-line: rgba(109, 79, 209, 0.35);
 }
 
 .dark {
@@ -41,6 +58,22 @@
   --design: #e8a33d;
   --concept-soft: rgba(79, 184, 168, 0.12);
   --design-soft: rgba(232, 163, 61, 0.12);
+
+  --tone-green: #5cc98f;
+  --tone-green-soft: rgba(92, 201, 143, 0.1);
+  --tone-green-line: rgba(92, 201, 143, 0.35);
+  --tone-blue: #6cb2ee;
+  --tone-blue-soft: rgba(108, 178, 238, 0.1);
+  --tone-blue-line: rgba(108, 178, 238, 0.35);
+  --tone-amber: #e8a33d;
+  --tone-amber-soft: rgba(232, 163, 61, 0.1);
+  --tone-amber-line: rgba(232, 163, 61, 0.35);
+  --tone-red: #f07a73;
+  --tone-red-soft: rgba(240, 122, 115, 0.1);
+  --tone-red-line: rgba(240, 122, 115, 0.35);
+  --tone-violet: #ad94f7;
+  --tone-violet-soft: rgba(173, 148, 247, 0.1);
+  --tone-violet-line: rgba(173, 148, 247, 0.35);
 }
 
 @layer base {
@@ -201,6 +234,18 @@
 
   .doc img {
     @apply rounded max-w-full;
+  }
+}
+
+/* Desktop sidebar collapse. Driven by a class on <html> (set before paint by
+   ThemeScript, then kept in sync by the Sidebar) so the server-rendered markup
+   never has to know the preference. */
+@media (min-width: 1024px) {
+  html.sidebar-collapsed [data-sidebar] {
+    transform: translateX(-100%);
+  }
+  html.sidebar-collapsed [data-content] {
+    padding-left: 0;
   }
 }
 

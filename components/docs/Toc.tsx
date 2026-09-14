@@ -37,7 +37,7 @@ export function Toc({ entries }: { entries: TocEntry[] }) {
   if (entries.length < 3) return null;
 
   return (
-    <nav aria-label="On this page" className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
+    <nav aria-label="On this page" className="max-h-[calc(100vh-14rem)] overflow-y-auto">
       <p className="mb-3 text-tiny font-semibold text-ink">On this page</p>
       <ul className="space-y-1 border-l border-rule">
         {entries.map((entry) => (

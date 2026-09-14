@@ -1,11 +1,14 @@
 "use client";
 
+import { isValidElement } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import rehypeRaw from "rehype-raw";
 import { CodeBlock } from "./CodeBlock";
 import { Mermaid } from "./Mermaid";
+import { ApiBlock } from "./ApiBlock";
+import { SchemaBlock } from "./SchemaBlock";
 
 /** Pull the plain-text content out of a fenced block's React children. */
 function textOf(children: React.ReactNode): string {
@@ -15,30 +18,32 @@ function textOf(children: React.ReactNode): string {
 }
 
 const components: Components = {
-  /**
-   * react-markdown routes both inline and fenced code here. Fenced blocks are
-   * the ones carrying a `language-*` class; a `mermaid` fence becomes a
-   * diagram, everything else becomes a copyable code block.
-   */
+  // Inline code only: fenced blocks are handled by `pre` below.
   code({ className, children, ...props }) {
-    const language = /language-(\w+)/.exec(className ?? "")?.[1];
-
-    if (!language) {
-      return (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    }
-
-    const code = textOf(children).replace(/\n$/, "");
-    if (language === "mermaid") return <Mermaid chart={code} />;
-    return <CodeBlock code={code} language={language} />;
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
   },
 
-  // Fenced blocks already render their own container, so drop the extra <pre>.
+  /**
+   * Every fenced block is a <pre> wrapping a <code>, with or without a
+   * language, so blocks are routed here. Deciding in `code` by language
+   * alone sent un-labelled fences down the inline path and collapsed their
+   * line breaks.
+   */
   pre({ children }) {
-    return <>{children}</>;
+    const codeProps = isValidElement<{ className?: string; children?: React.ReactNode }>(children)
+      ? children.props
+      : {};
+    const language = /language-([\w-]+)/.exec(codeProps.className ?? "")?.[1];
+    const code = textOf(codeProps.children).replace(/\n$/, "");
+
+    if (language === "mermaid") return <Mermaid chart={code} />;
+    if (language === "api") return <ApiBlock source={code} />;
+    if (language === "schema") return <SchemaBlock source={code} />;
+    return <CodeBlock code={code} language={language} />;
   },
 
   table({ children }) {

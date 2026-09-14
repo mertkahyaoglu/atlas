@@ -7,6 +7,12 @@ export interface Tag {
   id: string;
   label: string;
   kind: TagKind;
+  /** One short line shown in the tag's hover tooltip. */
+  description?: string;
+  /** Technology tags only: the core traits that make it the right pick. */
+  features?: string[];
+  /** Technology tags only: situations where it is the natural choice. */
+  useWhen?: string[];
 }
 
 export interface DocMeta {

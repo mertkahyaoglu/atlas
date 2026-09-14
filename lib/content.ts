@@ -47,6 +47,8 @@ function readGroup(group: DocGroup): Doc[] {
 let cache: Doc[] | null = null;
 
 export function getAllDocs(): Doc[] {
+  // In dev, re-read so markdown edits show up without restarting the server.
+  if (process.env.NODE_ENV !== "production") return [...readGroup("concept"), ...readGroup("design")];
   if (!cache) cache = [...readGroup("concept"), ...readGroup("design")];
   return cache;
 }

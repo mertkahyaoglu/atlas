@@ -48,24 +48,20 @@ Query cache hit rate: 60-80% (head queries are extremely repetitive)
 
 ## API / Model
 
+```api
+GET /v1/search?q=&filters=&sort=&cursor=&limit=20 || || 200 ranked results
+GET /v1/suggest?q=&limit=10 || || 200 completions || separate service, separate SLA
 ```
-GET /v1/search?q=&filters=&sort=&cursor=&limit=20
-GET /v1/suggest?q=&limit=10                     ← separate service, separate SLA
-```
 
-```
-INVERTED INDEX (per shard)
-  term → posting list
-    "distributed" → [(doc1, tf=3, pos[...]), (doc7, tf=1), (doc22, tf=5)]
-
-DOC STORE (for hydration / display fields)
-  doc_id → {title, snippet, url, metadata}
-
-TRIE (typeahead, in memory)
-  each node caches top-K completions by popularity
-
-SOURCE OF TRUTH
-  Postgres / Cassandra  ← index is DERIVED, never authoritative
+```schema
+# Inverted index · per shard
+term → posting list || || "distributed" → [(doc1, tf=3, pos[...]), (doc7, tf=1), (doc22, tf=5)] ||
+# Doc store · hydration and display fields
+doc_id || || {title, snippet, url, metadata} ||
+# Trie · typeahead, in memory
+trie node || || top-K completions by popularity || cached on every node
+# Source of truth
+Postgres / Cassandra || || || the index is derived, never authoritative
 ```
 
 ---

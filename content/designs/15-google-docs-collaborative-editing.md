@@ -51,31 +51,24 @@ Op size:                  ~100B; a doc's op log can reach millions of entries
 
 ## API / Model
 
+```api
+# WebSocket
+WS /v1/docs/{id}/connect || || 101
++ → client sends: {type:"op", doc_id, base_version, op, client_id, seq}
++ ← server sends: {type:"op", version, op, origin_client}
++                 {type:"ack", client_seq, version}
++                 {type:"presence", user_id, cursor, selection}
+# REST
+GET /v1/docs/{id} || || 200 latest snapshot + version
+GET /v1/docs/{id}/history?from= || || 200 op history
+POST /v1/docs/{id}/restore || {version} || 200
 ```
-WS  /v1/docs/{id}/connect
-  → client sends: {type:"op", doc_id, base_version, op, client_id, seq}
-  ← server sends: {type:"op", version, op, origin_client}
-                  {type:"ack", client_seq, version}
-                  {type:"presence", user_id, cursor, selection}
 
-REST
-GET  /v1/docs/{id}                  → latest snapshot + version
-GET  /v1/docs/{id}/history?from=
-POST /v1/docs/{id}/restore          {version}
-```
-
-```
-documents    PK: doc_id — title, owner, current_version, latest_snapshot_ref
-
-operations   PK: doc_id   SK: version (monotonic, server-assigned)
-             op (insert|delete, position, content), author_id, client_seq, ts
-             ← APPEND-ONLY. This is event sourcing; the doc is a fold over ops.
-
-snapshots    PK: doc_id   SK: version
-             content blob (object storage), created_at
-             ← every N ops, so loading doesn't replay millions of entries
-
-presence     Redis, ephemeral: doc_id → {user_id: {cursor, selection, ts}} TTL
+```schema
+documents || PK: doc_id || title, owner, current_version, latest_snapshot_ref ||
+operations || PK: doc_id SK: version || op (insert|delete, position, content), author_id, client_seq, ts || append-only with a monotonic, server-assigned version; the doc is a fold over ops
+snapshots || PK: doc_id SK: version || content blob (object storage), created_at || taken every N ops so loading doesn't replay millions of entries
+presence || || Redis, ephemeral: doc_id → {user_id: {cursor, selection, ts}} || TTL
 ```
 
 ---

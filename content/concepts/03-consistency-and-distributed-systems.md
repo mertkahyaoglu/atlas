@@ -34,7 +34,22 @@ CAP states that during a **network partition**, a distributed system must choose
 
 **The most common misstatement:** "pick two of three." That's wrong and interviewers notice. Networks partition whether you like it or not, so **P is not optional**. The real statement is: *when a partition happens, you must choose C or A.*
 
+```mermaid
+flowchart TB
+    CW([Client]) -- "write" --> A["Node A"]
+    CR([Client]) -- "read" --> B["Node B"]
+    A -. "network partition" .- B
+    B --> Choice{"B cannot reach A<br/>what does it do?"}
+    Choice -- "CP" --> CP["Refuse to answer<br/>consistent, but unavailable"]
+    Choice -- "AP" --> AP["Answer with possibly-stale data<br/>available, but inconsistent"]
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Choice hot
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
      Normal operation: you get C and A both.
 
      Partition occurs:
@@ -49,6 +64,8 @@ CAP states that during a **network partition**, a distributed system must choose
    AP choice: B answers with possibly-stale data
               -> available, but inconsistent
 ```
+
+</details>
 
 **How to use this in an interview:** don't recite the theorem. Make the choice and justify it from product requirements.
 
@@ -176,7 +193,22 @@ An operation is **idempotent** if performing it multiple times has the same effe
 
 1. **Idempotency keys.** The client generates a unique ID per logical operation and sends it with the request. The server records processed keys and, on seeing a repeat, returns the original result instead of re-executing. This is exactly how Stripe's API works.
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: POST /charge (Idempotency-Key abc-123)
+    Note right of S: key unseen, execute and store result
+    S--xC: response lost
+    C->>S: retry POST /charge (Idempotency-Key abc-123)
+    Note right of S: key seen, return stored result
+    S-->>C: stored result, card NOT charged again
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Client                        Server
     │  POST /charge                │
     │  Idempotency-Key: abc-123    │
@@ -187,6 +219,8 @@ An operation is **idempotent** if performing it multiple times has the same effe
     ├─────────────────────────────►│  key seen -> return stored result,
     │◄─────────────────────────────┤  do NOT charge again
 ```
+
+</details>
 
 2. **Natural idempotency by design.** Prefer "set state to X" over "increment." Prefer "ensure this row exists" (upsert) over "insert."
 3. **Deduplication on consume.** Message queues deliver at-least-once, so consumers store processed message IDs and skip duplicates. The dedupe store needs a TTL so it doesn't grow forever.
@@ -203,7 +237,25 @@ You need to change data in two places (two databases, or two microservices) and 
 
 A coordinator asks all participants "can you commit?" (prepare phase). If all say yes, it tells them all to commit. If any says no, it tells them all to abort.
 
+```mermaid
+sequenceDiagram
+    participant Co as Coordinator
+    participant A as ServiceA
+    participant B as ServiceB
+    Note over Co,B: Phase 1 · prepare
+    Co->>A: prepare?
+    Co->>B: prepare?
+    A-->>Co: yes
+    B-->>Co: yes
+    Note over Co,B: Phase 2 · commit
+    Co->>A: commit
+    Co->>B: commit
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Coordinator          ServiceA          ServiceB
       │   prepare?         │                 │
       ├───────────────────►│                 │
@@ -216,18 +268,35 @@ A coordinator asks all participants "can you commit?" (prepare phase). If all sa
       ├────────────────────┼────────────────►│
 ```
 
+</details>
+
 **Why it's avoided in practice:** it's a **blocking** protocol. Between "yes" and "commit," each participant holds locks and cannot proceed independently. If the coordinator dies in that window, participants are stuck holding locks indefinitely. Availability of the whole system becomes the product of every participant's availability. It's rarely the right call across service boundaries.
 
 ### The saga pattern
 
 Instead of one distributed transaction, run a sequence of *local* transactions, each with a defined **compensating action** that undoes it.
 
+```mermaid
+flowchart TB
+    F["Book flight"] -- "ok" --> H["Book hotel"]
+    H -- "ok" --> Car["Book car"]
+    Car -- "FAIL" --> CH["Compensate · cancel hotel"]
+    CH --> CF["Compensate · cancel flight"]
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Car hot
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Book flight  ──ok──►  Book hotel  ──ok──►  Book car  ──FAIL
        │                     │
        │                     └── compensate: cancel hotel
        └── compensate: cancel flight
 ```
+
+</details>
 
 You give up atomicity and isolation. There are intermediate states where the flight is booked but the hotel isn't, and other transactions can observe them. In exchange you get availability and no distributed locking. Compensations must themselves be idempotent and retryable.
 

@@ -49,30 +49,21 @@ Records:    ~0.5 KB → ~2 TB/day
 
 ## API / Model
 
+```api
+POST /internal/events || || 202 || producers only; separate from the user API
+GET /v1/notifications?cursor=&filter=unread || || 200 notification page
+POST /v1/notifications/{id}/read || || 204
+POST /v1/notifications/read-all || || 204
+PUT /v1/preferences || {type, channels[], digest_frequency} || 200
+POST /v1/repos/{id}/mute || || 204
 ```
-POST /internal/events                    (producers; separate from user API)
-GET  /v1/notifications?cursor=&filter=unread
-POST /v1/notifications/{id}/read
-POST /v1/notifications/read-all
-PUT  /v1/preferences                     {type, channels[], digest_frequency}
-POST /v1/repos/{id}/mute
-```
 
-```
-subscriptions   PK: repo_id    SK: user_id     (fan-out lookup direction)
-                type (watching|participating|mentioned), muted
-
-notifications   PK: user_id    SK: notification_id (Snowflake DESC)
-                event_id, type, entity_ref, read, created_at
-                UNIQUE (user_id, event_id)  ← idempotency key
-
-preferences     PK: user_id
-                per-type channel map, quiet_hours, timezone, digest_freq
-
-delivery_log    PK: (notification_id, channel)
-                status, attempts, last_error       ← dedupe + observability
-
-unread_counts   Redis: unread:{user_id} → int (atomic INCR/DECR)
+```schema
+subscriptions || PK: repo_id SK: user_id || type (watching|participating|mentioned), muted || fan-out lookup direction
+notifications || PK: user_id SK: notification_id (Snowflake, DESC) UNIQUE: (user_id, event_id) || event_id, type, entity_ref, read, created_at || the unique constraint is the idempotency key
+preferences || PK: user_id || per-type channel map, quiet_hours, timezone, digest_freq ||
+delivery_log || PK: (notification_id, channel) || status, attempts, last_error || dedupe and observability
+unread_counts || || Redis: unread:{user_id} → int || atomic INCR / DECR
 ```
 
 ---
@@ -99,7 +90,7 @@ flowchart TB
     subgraph FO ["Fan-out service"]
         direction TB
         Audience["1 · resolve audience<br/>watchers + mentions + participants"]
-        Celeb{"2 · celebrity repo?<br/>&gt; 100k watchers"}
+        Celeb{"2 · celebrity repo?<br/>> 100k watchers"}
         Filter["3 · filter muted and prefs"]
         Collapse["4 · collapse duplicates<br/>'10 people liked your post'"]
         Write["5 · batched idempotent write<br/>PK = user_id + event_id"]

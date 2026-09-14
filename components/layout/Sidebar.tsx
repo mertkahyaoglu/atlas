@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { X } from "lucide-react";
+import { PanelLeftClose, X } from "lucide-react";
 import type { DocMeta } from "@/lib/types";
 import { useUiStore } from "@/store/useUiStore";
 import { cn } from "@/lib/utils";
@@ -50,9 +51,28 @@ export function Sidebar({ concepts, designs }: SidebarProps) {
   const pathname = usePathname();
   const open = useUiStore((s) => s.sidebarOpen);
   const setOpen = useUiStore((s) => s.setSidebarOpen);
+  const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  const toggleCollapsed = useUiStore((s) => s.toggleSidebarCollapsed);
   const activeSlug = pathname.startsWith("/docs/") ? pathname.slice("/docs/".length) : "";
 
   const close = () => setOpen(false);
+
+  // The html class is what actually hides the sidebar; keep it in step with the store.
+  useEffect(() => {
+    document.documentElement.classList.toggle("sidebar-collapsed", collapsed);
+  }, [collapsed]);
+
+  // `[` toggles the desktop sidebar, unless the reader is typing somewhere.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "[" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement;
+      if (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      toggleCollapsed();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleCollapsed]);
 
   return (
     <>
@@ -66,6 +86,7 @@ export function Sidebar({ concepts, designs }: SidebarProps) {
       )}
 
       <aside
+        data-sidebar
         className={cn(
           "fixed inset-y-0 left-0 z-40 flex w-sidebar flex-col border-r border-rule bg-surface transition-transform duration-200 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
@@ -87,6 +108,15 @@ export function Sidebar({ concepts, designs }: SidebarProps) {
             className="text-inkMuted hover:text-ink lg:hidden"
           >
             <X className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar  ["
+            className="hidden h-8 w-8 items-center justify-center rounded text-inkFaint transition-colors duration-fast hover:bg-raised hover:text-ink lg:flex"
+          >
+            <PanelLeftClose className="h-4 w-4" />
           </button>
         </div>
 

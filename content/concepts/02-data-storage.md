@@ -18,7 +18,24 @@ A relational database stores data in **tables** — rows and columns with a fixe
 
 Its defining feature is the **join**: because data is stored *normalized* (each fact in exactly one place, with references between tables), you can combine tables at query time.
 
+```mermaid
+erDiagram
+    USERS ||--o{ ORDERS : "referenced by user_id"
+    USERS {
+        int id PK
+        string name
+    }
+    ORDERS {
+        int id PK
+        int user_id FK
+        decimal total
+    }
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
 users                     orders
 ┌────┬─────────┐         ┌────┬─────────┬────────┐
 │ id │ name    │         │ id │ user_id │ total  │
@@ -29,6 +46,8 @@ users                     orders
                           └────┴─────────┴────────┘
      "Alice" is stored ONCE. Orders reference her by id.
 ```
+
+</details>
 
 **Normalization** means eliminating duplicated data. If Alice changes her name, you update one row. Without normalization you'd update every order that stored her name, and if you missed one you'd have inconsistent data.
 
@@ -116,13 +135,34 @@ Without an index, finding all rows where `email = 'a@x.com'` requires reading ev
 
 The standard implementation is a **B-tree**: a balanced tree with high fan-out, so even a billion rows is only ~4 levels deep, meaning ~4 disk reads instead of millions.
 
+```mermaid
+flowchart TB
+    Root["m"]
+    L["f · j"]
+    R["r · w"]
+    Root --> L
+    Root --> R
+    L --> L1["leaf"]
+    L --> L2["leaf"]
+    L --> L3["leaf"]
+    R --> R1["leaf"]
+    R --> R2["leaf"]
+    R --> R3["leaf"]
+    L3 -. "leaves hold pointers to actual rows" .-> Rows[("table rows")]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
                  [ m ]
                /       \
         [ f | j ]      [ r | w ]
         /   |   \      /   |   \
      ...  ...  ...   ...  ...  ...     <- leaves contain pointers to actual rows
 ```
+
+</details>
 
 **The costs, which you should mention when you propose an index:**
 
@@ -144,7 +184,21 @@ Replication means keeping copies of the same data on multiple machines. It buys 
 
 ### Leader–follower (primary–replica)
 
+```mermaid
+flowchart TB
+    Writes([writes]) --> Leader["LEADER"]
+    Leader -- "replication" --> F1["FOLLOWER"]
+    Leader -- "replication" --> F2["FOLLOWER"]
+    Reads([reads]) --> F1
+    Reads --> F2
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Leader hot
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
         writes
           │
           v
@@ -157,6 +211,8 @@ Replication means keeping copies of the same data on multiple machines. It buys 
                                ^           ^
                                └─ reads ───┘
 ```
+
+</details>
 
 All writes go to the leader. The leader streams its change log to followers. Reads can go to any node.
 
@@ -228,7 +284,22 @@ Suppose you have 4 shards and use `hash(key) % 4`. Now you add a fifth shard. Ev
 
 The idea: map both the *keys* and the *nodes* onto the same circular space (a "ring") of hash values from 0 to 2³²-1. A key belongs to the first node encountered moving clockwise from the key's position.
 
+```mermaid
+flowchart TB
+    A(("NodeA")) -- "clockwise" --> B(("NodeB"))
+    B -- "clockwise" --> C(("NodeC"))
+    C -- "clockwise" --> D(("NodeD"))
+    D -- "wraps past 2^32" --> A
+    k1["key1"] -. "stored on" .-> B
+    k2["key2"] -. "stored on" .-> C
+    k3["key3"] -. "stored on" .-> D
+    k4["key4"] -. "stored on" .-> A
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
                     0 / 2^32
                         │
               NodeA ────┼──── key1
@@ -245,6 +316,8 @@ The idea: map both the *keys* and the *nodes* onto the same circular space (a "r
   key3 -> NodeD
   key4 -> NodeA
 ```
+
+</details>
 
 **Now add NodeE between NodeB and NodeC.** Only the keys that sat between NodeB and NodeE move — roughly `1/N` of the data. Nothing else is disturbed. Removing a node is equally surgical: only its keys move, to the next node clockwise.
 

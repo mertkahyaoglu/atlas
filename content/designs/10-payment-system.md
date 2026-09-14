@@ -47,36 +47,24 @@ Retention:      7+ years, immutable (regulatory)
 
 ## API / Model
 
+```api
+POST /v1/payments || Idempotency-Key: <uuid> || 201 payment || the Idempotency-Key header is mandatory
++ {order_id, amount, currency, payment_method_token, capture: true|false}
+POST /v1/payments/{id}/capture || {amount} || 200
+POST /v1/payments/{id}/refund || Idempotency-Key: <uuid>  {amount, reason} || 201 refund
+GET /v1/payments/{id} || || 200 payment
+POST /v1/webhooks/psp || || 200 || inbound from the processor, signed
 ```
-POST /v1/payments          Idempotency-Key: <uuid>    ← MANDATORY header
-     {order_id, amount, currency, payment_method_token, capture: true|false}
-POST /v1/payments/{id}/capture     {amount}
-POST /v1/payments/{id}/refund      Idempotency-Key: <uuid>  {amount, reason}
-GET  /v1/payments/{id}
-POST /v1/webhooks/psp              ← inbound from processor (signed)
-```
 
-```
-idempotency_keys   PK: (merchant_id, key)
-                   request_hash, response_body, status, created_at, TTL 24h
-                   ← the single most important table in the system
-
-payments           PK: payment_id
-                   order_id, amount, currency, state, psp_ref, created_at
-                   states: PENDING → AUTHORIZED → CAPTURED → SETTLED
-                                  ↘ FAILED    ↘ REFUNDED / PARTIALLY_REFUNDED
-
-ledger_entries     PK: entry_id  (IMMUTABLE, append-only)
-                   transaction_id, account_id, direction (DEBIT|CREDIT),
-                   amount_minor_units (INTEGER — never float), currency, created_at
-                   CONSTRAINT: Σ debits = Σ credits per transaction_id
-
-accounts           PK: account_id — type (customer|merchant|fees|psp_clearing)
-                   balance is DERIVED from ledger, cached with periodic reconciliation
-
-outbox             PK: id — aggregate_id, event_type, payload, published (bool)
-
-psp_events         PK: psp_event_id — dedupe of inbound webhooks
+```schema
+idempotency_keys || PK: (merchant_id, key) || request_hash, response_body, status, created_at || TTL 24h; the single most important table in the system
+payments || PK: payment_id || order_id, amount, currency, state, psp_ref, created_at ||
++ states: PENDING → AUTHORIZED → CAPTURED → SETTLED
++                ↘ FAILED    ↘ REFUNDED / PARTIALLY_REFUNDED
+ledger_entries || PK: entry_id || transaction_id, account_id, direction (DEBIT|CREDIT), amount_minor_units (INTEGER, never float), currency, created_at || immutable and append-only; Σ debits = Σ credits per transaction_id
+accounts || PK: account_id || type (customer|merchant|fees|psp_clearing) || balance is derived from the ledger, cached with periodic reconciliation
+outbox || PK: id || aggregate_id, event_type, payload, published (bool) ||
+psp_events || PK: psp_event_id || || dedupe of inbound webhooks
 ```
 
 Two details worth stating unprompted: **amounts are integers in minor units** (cents), never floats — `0.1 + 0.2 != 0.3` is a real bug that costs real money. And **ledger entries are immutable**; a correction is a new compensating entry, never an UPDATE.

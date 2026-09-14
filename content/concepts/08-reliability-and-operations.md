@@ -87,7 +87,23 @@ Retry with exponential backoff **and jitter**, only for idempotent or idempotenc
 
 Borrowed from electrical engineering: when a dependency is clearly broken, **stop calling it** for a while.
 
+```mermaid
+flowchart TB
+    CLOSED["CLOSED<br/>calls pass through"]
+    OPEN["OPEN<br/>calls fail immediately<br/>dependency gets a rest"]
+    HALF["HALF-OPEN<br/>let a few trial calls through"]
+    CLOSED -- "failures exceed threshold" --> OPEN
+    OPEN -- "after cooldown" --> HALF
+    HALF -- "trial calls succeed" --> CLOSED
+    HALF -- "trial call fails" --> OPEN
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class OPEN hot
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
         failures exceed threshold
    CLOSED ─────────────────────────► OPEN
    (calls                            (calls fail immediately,
@@ -99,6 +115,8 @@ Borrowed from electrical engineering: when a dependency is clearly broken, **sto
       └──────────────────────────  (let a few trial
              (failure → OPEN)       calls through)
 ```
+
+</details>
 
 - **Closed**: normal. Requests flow; failures are counted.
 - **Open**: the failure rate crossed a threshold. Requests fail instantly without attempting the call. This does two things: your own threads stop piling up waiting, and the struggling dependency gets relief instead of being hammered by a service that refuses to give up.

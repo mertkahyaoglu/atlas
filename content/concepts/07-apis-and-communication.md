@@ -67,7 +67,24 @@ You need the server to push data to the client. Four options, in increasing capa
 
 The client asks "anything new?" every N seconds.
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: anything new?
+    S-->>C: no
+    Note over C: wait 5 s
+    C->>S: anything new?
+    S-->>C: no
+    Note over C: wait 5 s
+    C->>S: anything new?
+    S-->>C: yes, here it is
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Client ──?──► Server  (no)
    wait 5s
   Client ──?──► Server  (no)
@@ -75,16 +92,34 @@ The client asks "anything new?" every N seconds.
   Client ──?──► Server  (yes! here it is)
 ```
 
+</details>
+
 Simple and works everywhere. Wasteful: most requests return nothing, and latency is up to the polling interval. Fine for low-frequency updates where seconds of delay don't matter.
 
 ### Long polling
 
 The client makes a request and the *server holds it open* until there's data (or a timeout), then responds. The client immediately re-requests.
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: anything new?
+    Note over S: request held open until data arrives
+    S-->>C: data
+    C->>S: anything new? (reconnect immediately)
+    Note over S: held open again
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Client ──?──► Server  ......held open......  ──data──►
   Client ──?──► Server  ......held open......
 ```
+
+</details>
 
 Near-real-time latency without a new protocol. Costs a held connection per client and awkward server resource management. It was the standard pre-WebSocket solution and is still a reasonable fallback.
 
@@ -119,7 +154,23 @@ Strengths: full duplex, very low latency, low per-message overhead after the han
 
 This comes up whenever you propose WebSockets, so have the answer ready:
 
+```mermaid
+flowchart TB
+    LB["Load balancer<br/>users connect to whichever gateway it picks"]
+    G1["Gateway 1<br/>Alice"]
+    G2["Gateway 2<br/>Bob"]
+    G3["Gateway 3<br/>Carol"]
+    LB --> G1 & G2 & G3
+    PubSub{{"Pub/Sub layer<br/>Redis pub/sub, Kafka"}}
+    PubSub --> G1 & G2 & G3
+    Registry[("Connection registry<br/>user_id → gateway node<br/>Redis, TTL heartbeats")]
+    Registry --> PubSub
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Users connect to whichever gateway node the LB picks.
 
   ┌──────────┐  ┌──────────┐  ┌──────────┐
@@ -136,6 +187,8 @@ This comes up whenever you propose WebSockets, so have the answer ready:
               │ registry      │  (Redis, with TTL heartbeats)
               └──────────────┘
 ```
+
+</details>
 
 The problem: a backend service wants to send a message to Alice, but has no idea which of fifty gateway nodes holds her connection. The solution is a **connection registry** mapping user to node (refreshed by heartbeat, expired by TTL so dead nodes clean themselves up), plus a pub/sub layer so any service can publish to a user's channel and the right gateway picks it up. Also mention: **offline delivery** — if the user isn't connected, the message must be persisted and delivered on reconnect, which is why you store notifications rather than only pushing them.
 
@@ -184,12 +237,26 @@ Include the `id` as a tiebreaker in the sort key. Timestamps collide, and withou
 
 A single entry point in front of many backend services.
 
+```mermaid
+flowchart LR
+    Clients([Clients]) --> GW["API GATEWAY"]
+    GW --> Auth["Auth service"]
+    GW --> Orders["Orders service"]
+    GW --> Users["Users service"]
+    GW --> Search["Search service"]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
   Clients ──► [ API GATEWAY ] ──┬──► Auth service
                                  ├──► Orders service
                                  ├──► Users service
                                  └──► Search service
 ```
+
+</details>
 
 Responsibilities it centralizes so individual services don't each reimplement them:
 - TLS termination
@@ -236,7 +303,19 @@ Approximate, but nearly as accurate as the log at a tiny fraction of the memory.
 **Token bucket**
 A bucket holds up to `B` tokens and refills at `R` tokens per second. Each request consumes a token; if the bucket is empty, the request is rejected.
 
+```mermaid
+flowchart TB
+    Refill(["refill rate R = 10 tokens/sec"]) --> Bucket[("bucket · capacity B = 50")]
+    Req([request]) --> Take{"token available?"}
+    Bucket -. "each request takes 1 token" .-> Take
+    Take -- "yes" --> Allowed["allowed"]
+    Take -- "no" --> Rejected["rejected"]
 ```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
    refill rate R = 10 tokens/sec
    ┌──────────────┐
    │ ● ● ● ● ●    │  capacity B = 50
@@ -245,6 +324,8 @@ A bucket holds up to `B` tokens and refills at `R` tokens per second. Each reque
           ▼
       allowed / rejected
 ```
+
+</details>
 
 The important property: it **allows bursts up to the bucket size** while enforcing a long-run average rate. That's usually what you actually want — real traffic is bursty, and clients that have been idle should be allowed to catch up. This is the most widely used algorithm and a good default answer.
 

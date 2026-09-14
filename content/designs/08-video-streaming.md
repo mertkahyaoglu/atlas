@@ -49,28 +49,21 @@ Storage:     1 hour of source ≈ 5 GB; × ~6 renditions ≈ 15 GB stored
 
 ## API / Model
 
+```api
+POST /v1/videos || {title, desc} || 201 {video_id, upload_url}
+PUT <presigned S3 url> || || 200 || direct, multipart, resumable
+POST /v1/videos/{id}/complete || {parts[]} || 202 || triggers the processing pipeline
+GET /v1/videos/{id} || || 200 metadata + manifest URL
+GET <cdn>/videos/{id}/master.m3u8 || || 200 ABR manifest
+GET <cdn>/videos/{id}/720p/seg_0042.ts || || 200 media segment
+POST /v1/videos/{id}/view || || 202 || async view event
 ```
-POST /v1/videos                      {title, desc}      → {video_id, upload_url}
-PUT  <presigned S3 url>              (direct, multipart, resumable)
-POST /v1/videos/{id}/complete        {parts[]}          → triggers pipeline
-GET  /v1/videos/{id}                                    → metadata + manifest URL
-GET  <cdn>/videos/{id}/master.m3u8                      → ABR manifest
-GET  <cdn>/videos/{id}/720p/seg_0042.ts                 → a media segment
-POST /v1/videos/{id}/view                               → async view event
-```
 
-```
-videos       PK: video_id
-             owner, title, description, duration, status
-             (UPLOADING|PROCESSING|READY|FAILED), created_at
-
-renditions   PK: video_id  SK: (resolution, codec)
-             manifest_path, bitrate, size, ready
-
-jobs         PK: job_id — video_id, stage, state, attempts
-             (transcode DAG state)
-
-views_raw    → Kafka → stream aggregation → views_agg
+```schema
+videos || PK: video_id || owner, title, description, duration, status, created_at || status: UPLOADING | PROCESSING | READY | FAILED
+renditions || PK: video_id SK: (resolution, codec) || manifest_path, bitrate, size, ready ||
+jobs || PK: job_id || video_id, stage, state, attempts || transcode DAG state
+views_raw || || Kafka → stream aggregation → views_agg ||
 ```
 
 Note what is *not* in the database: the video bytes. Metadata in the database, bytes in object storage, delivery via CDN. That split is the whole design.

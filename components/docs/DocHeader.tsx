@@ -1,7 +1,7 @@
 import { Clock } from "lucide-react";
 import type { DocMeta } from "@/lib/types";
 import { GroupBadge } from "@/components/ui/GroupBadge";
-import { Tag } from "@/components/ui/Tag";
+import { DocTags } from "./DocTags";
 
 export function DocHeader({ doc }: { doc: DocMeta }) {
   return (
@@ -26,13 +26,7 @@ export function DocHeader({ doc }: { doc: DocMeta }) {
         </div>
       )}
 
-      {doc.tags.length > 0 && (
-        <div className="mt-6 flex flex-wrap gap-1.5">
-          {doc.tags.map((tag) => (
-            <Tag key={tag} id={tag} />
-          ))}
-        </div>
-      )}
+      {doc.tags.length > 0 && <DocTags tags={doc.tags} />}
     </header>
   );
 }

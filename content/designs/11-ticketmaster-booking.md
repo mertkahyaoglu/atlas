@@ -47,29 +47,21 @@ Concurrent buyers:     500,000 chasing 50,000 seats (10:1 oversubscription)
 
 ## API / Model
 
+```api
+GET /v1/events/{id} || || 200 event + availability summary
+GET /v1/events/{id}/seats?section= || || 200 seat map || cached, may be stale
+POST /v1/events/{id}/holds || Idempotency-Key  {seat_ids[]} || 201 409 hold_id, expires_at || 409 Conflict when a seat is already held
+POST /v1/holds/{id}/checkout || Idempotency-Key  {payment_token} || 201 booking_id
+DEL /v1/holds/{id} || || 204 || release early
+GET /v1/queue/status || || 200 waiting room position
 ```
-GET  /v1/events/{id}                              → event + availability summary
-GET  /v1/events/{id}/seats?section=               → seat map (cached, may be stale)
-POST /v1/events/{id}/holds   Idempotency-Key      {seat_ids[]} → hold_id, expires_at
-POST /v1/holds/{id}/checkout Idempotency-Key      {payment_token} → booking_id
-DEL  /v1/holds/{id}                               → release early
-GET  /v1/queue/status                             → waiting room position
-```
 
-```
-events       PK: event_id — venue, datetime, on_sale_at, status
-
-seats        PK: (event_id, seat_id)
-             section, row, number, price_tier,
-             state: AVAILABLE | HELD | SOLD
-             held_by (session), hold_expires_at, version (for optimistic lock)
-
-holds        PK: hold_id — event_id, seat_ids[], user_id,
-             created_at, expires_at (TTL ~10 min), state
-
-bookings     PK: booking_id — hold_id, user_id, seat_ids[], payment_id, state
-
-inventory_ga PK: (event_id, tier) — total, sold   ← counter for general admission
+```schema
+events || PK: event_id || venue, datetime, on_sale_at, status ||
+seats || PK: (event_id, seat_id) || section, row, number, price_tier, state, held_by (session), hold_expires_at, version || state: AVAILABLE | HELD | SOLD; version enables optimistic locking
+holds || PK: hold_id || event_id, seat_ids[], user_id, created_at, expires_at, state || TTL ~10 min
+bookings || PK: booking_id || hold_id, user_id, seat_ids[], payment_id, state ||
+inventory_ga || PK: (event_id, tier) || total, sold || counter for general admission
 ```
 
 The `state` field on `seats` plus a `version` column is the whole concurrency-control story. Everything else is supporting cast.
@@ -116,7 +108,7 @@ flowchart TB
     Ok --> DB
     DB[("Primary DB · Postgres<br/>ACID · CP<br/>SHARDED BY EVENT so one hot<br/>on-sale can't degrade the platform")]
 
-    DB --> Sweeper["Hold expiry sweeper<br/>release where expires_at &lt; now()<br/>ALSO checked at read time —<br/>never rely on the sweeper alone"]
+    DB --> Sweeper["Hold expiry sweeper<br/>release where expires_at < now()<br/>ALSO checked at read time —<br/>never rely on the sweeper alone"]
     DB --> SeatEvents{{"Kafka · seat.events<br/>→ cache invalidate<br/>→ live seat map over WS"}}
     SeatEvents -.-> Browse
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Menu } from "lucide-react";
+import { Menu, PanelLeftOpen } from "lucide-react";
 import { useUiStore } from "@/store/useUiStore";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -12,6 +12,7 @@ interface TopBarProps {
 
 export function TopBar({ crumb }: TopBarProps) {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const toggleSidebarCollapsed = useUiStore((s) => s.toggleSidebarCollapsed);
 
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-rule bg-canvas/90 px-4 backdrop-blur sm:px-8">
@@ -22,6 +23,17 @@ export function TopBar({ crumb }: TopBarProps) {
         className="flex h-8 w-8 items-center justify-center rounded border border-rule text-inkMuted hover:text-ink lg:hidden"
       >
         <Menu className="h-4 w-4" />
+      </button>
+
+      {/* Desktop: only shown once the sidebar is collapsed, as the way back. */}
+      <button
+        type="button"
+        onClick={toggleSidebarCollapsed}
+        aria-label="Expand sidebar"
+        title="Expand sidebar  ["
+        className="hidden h-8 w-8 items-center justify-center rounded border border-rule text-inkMuted transition-colors duration-fast hover:text-ink [.sidebar-collapsed_&]:lg:flex"
+      >
+        <PanelLeftOpen className="h-4 w-4" />
       </button>
 
       {crumb ? (
