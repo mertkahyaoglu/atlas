@@ -3,7 +3,11 @@ import type { DocMeta } from "@/lib/types";
 import { GroupBadge } from "@/components/ui/GroupBadge";
 import { DocTags } from "./DocTags";
 
-export function DocHeader({ doc }: { doc: DocMeta }) {
+/**
+ * `showHardPart` is off when the page renders the design panels, which show
+ * the fuller version of the same text.
+ */
+export function DocHeader({ doc, showHardPart = true }: { doc: DocMeta; showHardPart?: boolean }) {
   return (
     <header className="mb-12 border-b border-rule pb-8">
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -17,7 +21,7 @@ export function DocHeader({ doc }: { doc: DocMeta }) {
       <h1 className="text-h1 font-semibold text-ink sm:text-display">{doc.title}</h1>
       <p className="mt-4 max-w-reading text-lead text-inkMuted">{doc.summary}</p>
 
-      {doc.hardPart && (
+      {showHardPart && doc.hardPart && (
         <div className="mt-6 max-w-reading border-l-2 border-[color:var(--accent)] bg-[color:var(--accent-soft)] py-3 pl-4 pr-4">
           <p className="text-small text-ink">
             <span className="font-semibold">What they&rsquo;re really testing: </span>

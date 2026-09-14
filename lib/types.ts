@@ -29,8 +29,39 @@ export interface DocMeta {
   readingMinutes: number;
 }
 
+export interface DesignTradeoff {
+  title: string;
+  /** Markdown: may contain code blocks, tables and lists. */
+  body: string;
+}
+
+export interface DesignFollowUp {
+  question: string;
+  answer: string;
+}
+
+/** The structured sections of a design doc, read from frontmatter. */
+export interface DesignDetails {
+  /** Full version of the short `hardPart` used on cards; shown on the doc page. */
+  hardPart: string;
+  concepts: string[];
+  requirements: {
+    functional: string[];
+    nonFunctional: string[];
+    outOfScope?: string;
+  };
+  scale?: {
+    numbers: string;
+    conclusion?: string;
+  };
+  tradeoffs: DesignTradeoff[];
+  followUps: DesignFollowUp[];
+}
+
 export interface Doc extends DocMeta {
   content: string;
+  /** Design docs only. Kept off DocMeta so sidebar and card payloads stay small. */
+  design?: DesignDetails;
 }
 
 export interface TocEntry {

@@ -113,6 +113,8 @@ flowchart LR
     T -- "m1" --> Em["Email service"]
     T -- "m1" --> An["Analytics service"]
     T -- "m1" --> Se["Search indexer"]
+
+    click Se href "/docs/09-specialized-building-blocks" "Role: consumes order events to keep the search index up to date.<br/>Trade-off: search results lag the database by however far behind this consumer is."
 ```
 
 <details>

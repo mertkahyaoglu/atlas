@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import type { Doc, DocGroup, DocMeta, TocEntry } from "./types";
+import type { DesignDetails, DesignFollowUp, DesignTradeoff, Doc, DocGroup, DocMeta, TocEntry } from "./types";
 
 const CONTENT_ROOT = path.join(process.cwd(), "content");
 const GROUP_DIR: Record<DocGroup, string> = {
@@ -10,6 +10,84 @@ const GROUP_DIR: Record<DocGroup, string> = {
 };
 
 const WORDS_PER_MINUTE = 200;
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+/** A list of objects, keeping only entries `pick` can turn into a complete record. */
+function records<T>(value: unknown, pick: (item: Record<string, unknown>) => T | null): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const picked = item && typeof item === "object" ? pick(item as Record<string, unknown>) : null;
+    return picked ? [picked] : [];
+  });
+}
+
+/**
+ * Design docs keep their opening sections (concepts, hard part, requirements,
+ * scale) in frontmatter. Missing pieces are reported rather than silently
+ * rendering an empty panel.
+ */
+function readDesign(slug: string, data: Record<string, unknown>): DesignDetails | undefined {
+  const requirements = (data.requirements ?? {}) as Record<string, unknown>;
+  const scale = (data.scale ?? {}) as Record<string, unknown>;
+
+  const design: DesignDetails = {
+    hardPart: String(data.hardPartDetail ?? data.hardPart ?? ""),
+    concepts: strings(data.concepts),
+    requirements: {
+      functional: strings(requirements.functional),
+      nonFunctional: strings(requirements.nonFunctional),
+      outOfScope: requirements.outOfScope ? String(requirements.outOfScope) : undefined,
+    },
+    scale: scale.numbers
+      ? {
+          numbers: String(scale.numbers).replace(/\n+$/, ""),
+          conclusion: scale.conclusion ? String(scale.conclusion) : undefined,
+        }
+      : undefined,
+    tradeoffs: records<DesignTradeoff>(data.tradeoffs, (item) =>
+      item.title && item.body ? { title: String(item.title), body: String(item.body) } : null,
+    ),
+    followUps: records<DesignFollowUp>(data.followUps, (item) =>
+      item.question && item.answer ? { question: String(item.question), answer: String(item.answer) } : null,
+    ),
+  };
+
+  const missing = [
+    !data.hardPartDetail && "hardPartDetail",
+    design.concepts.length === 0 && "concepts",
+    design.requirements.functional.length === 0 && "requirements.functional",
+    design.requirements.nonFunctional.length === 0 && "requirements.nonFunctional",
+    !design.scale && "scale.numbers",
+    design.tradeoffs.length === 0 && "tradeoffs",
+    design.followUps.length === 0 && "followUps",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    console.warn(`[content] ${slug}: design frontmatter is missing ${missing.join(", ")}`);
+  }
+
+  const hasPanels = design.concepts.length > 0 || design.requirements.functional.length > 0;
+  return hasPanels ? design : undefined;
+}
+
+/** Words shown in the design panels, so reading time still counts them. */
+function designWordCount(design: DesignDetails | undefined): number {
+  if (!design) return 0;
+  const text = [
+    design.hardPart,
+    ...design.concepts,
+    ...design.requirements.functional,
+    ...design.requirements.nonFunctional,
+    design.requirements.outOfScope ?? "",
+    design.scale?.numbers ?? "",
+    design.scale?.conclusion ?? "",
+    ...design.tradeoffs.flatMap((t) => [t.title, t.body]),
+    ...design.followUps.flatMap((f) => [f.question, f.answer]),
+  ].join(" ");
+  return text.split(/\s+/).filter(Boolean).length;
+}
 
 function readGroup(group: DocGroup): Doc[] {
   const dir = path.join(CONTENT_ROOT, GROUP_DIR[group]);
@@ -24,6 +102,8 @@ function readGroup(group: DocGroup): Doc[] {
       const slug = file.replace(/\.md$/, "");
       // DocHeader renders the title, so drop the body's leading H1.
       const content = body.replace(/^\s*#\s+.*\n+/, "");
+      const design = group === "design" ? readDesign(slug, data) : undefined;
+      const words = content.split(/\s+/).length + designWordCount(design);
 
       return {
         slug,
@@ -33,8 +113,9 @@ function readGroup(group: DocGroup): Doc[] {
         summary: String(data.summary ?? ""),
         hardPart: data.hardPart ? String(data.hardPart) : undefined,
         tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
-        readingMinutes: Math.max(1, Math.round(content.split(/\s+/).length / WORDS_PER_MINUTE)),
+        readingMinutes: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
         content,
+        design,
       } satisfies Doc;
     })
     .sort((a, b) => a.order - b.order);
@@ -63,7 +144,7 @@ export function getDoc(slug: string): Doc | undefined {
 
 /** Strip content so client components receive only what they render. */
 export function toMeta(doc: Doc): DocMeta {
-  const { content: _content, ...meta } = doc;
+  const { content: _content, design: _design, ...meta } = doc;
   return meta;
 }
 
@@ -86,14 +167,35 @@ export function getSiblings(slug: string): { prev?: DocMeta; next?: DocMeta } {
 const HEADING = /^(#{2,3})\s+(.+)$/gm;
 const FENCE = /```[\s\S]*?```/g;
 
-/** Mirrors rehype-slug so anchors generated here match rendered heading ids. */
+/**
+ * Mirrors github-slugger (what rehype-slug uses) so anchors generated here
+ * match rendered heading ids. Each space becomes its own hyphen, so
+ * "API / Model" is `api--model`, not `api-model`.
+ */
 export function slugifyHeading(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[`*_~]/g, "")
+    .replace(/[`*~]/g, "")
     .replace(/[^\w\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
+    .replace(/ /g, "-");
+}
+
+/** Headings rendered by the design panels, which don't exist in the markdown body. */
+export const DESIGN_OPENING_TITLES = ["Primary concepts and the hard part", "Requirements"] as const;
+export const DESIGN_CLOSING_TITLES = ["Trade-offs and deep dives", "Possible follow-up questions"] as const;
+
+const tocEntry = (text: string): TocEntry => ({ id: slugifyHeading(text), text, depth: 2 });
+
+/** Table-of-contents entries for the panels before and after the markdown body. */
+export function designToc(design: DesignDetails): { opening: TocEntry[]; closing: TocEntry[] } {
+  const [tradeoffsTitle, followUpsTitle] = DESIGN_CLOSING_TITLES;
+  return {
+    opening: DESIGN_OPENING_TITLES.map(tocEntry),
+    closing: [
+      ...(design.tradeoffs.length > 0 ? [tocEntry(tradeoffsTitle)] : []),
+      ...(design.followUps.length > 0 ? [tocEntry(followUpsTitle)] : []),
+    ],
+  };
 }
 
 export function buildToc(content: string): TocEntry[] {

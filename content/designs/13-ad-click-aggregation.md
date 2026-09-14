@@ -5,47 +5,105 @@ title: "Ad Click Aggregation"
 summary: "A million events a second aggregated into dashboards that are fast and billing numbers that are exact."
 hardPart: "Event time. Clicks arrive late, out of order and duplicated. Aggregating by arrival time is easy and wrong, and advertisers are billed from these numbers."
 tags: ["stream-processing", "flink", "olap", "kafka", "dedup"]
----
+hardPartDetail: "**Event time**. Clicks arrive late, out of order, and duplicated. Aggregating by arrival time is easy and wrong — it puts a click that happened at 10:00 into the 10:07 bucket, and advertisers are billed from these numbers. They want to see watermarks, late-data policy, and a story for correcting yesterday's totals."
+concepts:
+  - "stream processing"
+  - "event time vs processing time"
+  - "watermarks"
+  - "windowing"
+  - "exactly-once semantics"
+  - "Lambda vs Kappa architecture"
+  - "OLAP storage"
+  - "deduplication at extreme volume"
+  - "backfill and reprocessing"
+requirements:
+  functional:
+    - "Ingest ad impression and click events"
+    - "Aggregate counts per (ad_id, minute), per campaign, per country/device"
+    - "Serve near-real-time dashboards (last few minutes)"
+    - "Serve historical reports (arbitrary ranges, arbitrary dimensions)"
+    - "Detect and exclude fraudulent/duplicate clicks"
+    - "Support billing — numbers must eventually be *exactly* right"
+  nonFunctional:
+    - "Ingest 1M events/sec, spiky"
+    - "Dashboard freshness: under ~1 minute"
+    - "Billing accuracy: exact, reconcilable, auditable"
+    - "Must tolerate late-arriving events (mobile offline, retries)"
+    - "Must support reprocessing after a bug"
+  outOfScope: "ad serving/auction (a different, latency-critical system), ML click prediction."
+scale:
+  numbers: |-
+    Events:       1M/sec → 86B/day
+    Event size:   ~200B → 17 TB/day raw
+    Cardinality:  1M ads × 1,440 minutes = 1.4B aggregate rows/day (before dimensions)
+    Query load:   dashboards ~1,000/sec; reports lower volume, heavier
+  conclusion: "Raw events are too big to query directly and too valuable to discard. So: keep raw in cheap storage for reprocessing, serve queries from pre-aggregates. That split is the architecture."
+tradeoffs:
+  - title: "Event time vs processing time — the core of the whole design"
+    body: |-
+      ```
+        A click HAPPENS at 10:00:30 on a phone that's in a tunnel.
+        It ARRIVES at your ingest at 10:07:15.
 
+        Processing-time windowing → counted in the 10:07 bucket.  WRONG.
+        Event-time windowing      → counted in the 10:00 bucket.  RIGHT.
+      ```
+
+      Advertisers are billed per minute and compare your numbers against their own. Attributing a click to the wrong minute is a billing dispute. Windowing must use the event's own timestamp.
+
+      But event-time windowing raises the question: when do you decide the 10:00 window is finished? You can't wait forever. That's what watermarks are for.
+  - title: "Watermarks, explained"
+    body: |-
+      A watermark is the processor's assertion: "I believe all events with timestamp earlier than T have now arrived." It's typically computed as `max_observed_event_time − allowed_lateness`. When the watermark passes a window's end, the window fires and emits its result.
+
+      The trade-off is explicit and worth stating: a **larger** allowed-lateness δ captures more stragglers but delays every result by δ. A **smaller** δ gives fresher dashboards but drops or defers more late data. Pick δ from the observed distribution of arrival delay (e.g. δ = p99 of `arrival_time − event_time`), and say you'd measure it rather than guess.
+  - title: "Late data policy — three tiers"
+    body: |-
+      Have an answer for each:
+      1. *Within the watermark* — included normally.
+      2. *After the window fired but within a grace period* — emit an updated result (a retraction plus a new value). Downstream stores must support upsert, which is why the OLAP layer is keyed by (ad, minute, dimensions) rather than append-only.
+      3. *Beyond grace* — route to a side output and let the nightly batch job fix it. Don't distort the streaming pipeline to chase the long tail.
+  - title: "Lambda vs Kappa, and why this design is Lambda-ish"
+    body: |-
+      - *Kappa* (stream only, reprocess by replaying) is simpler and increasingly the default.
+      - *Lambda* (stream for speed, batch for truth) duplicates logic in two systems, which can drift.
+
+      For billing, the honest answer is a **hybrid that leans Kappa**: one stream pipeline produces the live numbers, and a *reprocessing run of the same code* over archived raw events produces the authoritative nightly figures. You get the correctness of a batch layer without maintaining two separate implementations. Stating it that way — same code, replayed — shows you understand why classic Lambda is criticized.
+  - title: "Exactly-once, scoped honestly"
+    body: |-
+      Flink's checkpointing gives exactly-once *state* semantics within the pipeline: on recovery, it restores state and rewinds Kafka offsets so no event is double-counted internally. But the moment you write to an external store, you need either a transactional sink or idempotent upserts keyed by (ad_id, window, dimensions). The end-to-end guarantee is *effectively* exactly-once, built from at-least-once delivery plus idempotent writes — the same framing as Module 5, applied to analytics.
+
+      Application-level dedupe on `event_id` is still required, because the ad server itself may retry and send the same event twice. That's outside Flink's guarantee entirely.
+  - title: "Why an OLAP store"
+    body: |-
+      These queries scan billions of rows to compute sums grouped by a few dimensions. A row-oriented OLTP database reads entire rows off disk to sum one column. Columnar stores read only the columns referenced, compress each column separately (very effectively, since adjacent values are similar), and vectorize the scan. Orders of magnitude difference for exactly this access pattern. Never run these reports against the transactional database.
+  - title: "Pre-aggregation and rollups"
+    body: |-
+      Storing every raw event forever in the query store is unaffordable. Pre-aggregate at ingestion to minute granularity, then roll minutes into hours after a few days and hours into days after a few months. Query granularity degrades with age, which matches how people actually use analytics — nobody needs minute-level data from eighteen months ago.
+  - title: "Unique counts need sketches"
+    body: |-
+      "Unique users who saw this ad" cannot be pre-aggregated by simple addition — you can't sum two unique-counts. Use **HyperLogLog** sketches, which are mergeable: the union of two sketches gives the unique count of the union, in a few KB, with ~2% error. If exact uniques are required for billing, compute them in the batch layer over raw data. This is a great place to show you know when approximation is acceptable and when it isn't.
+  - title: "Ingest must never block ad serving"
+    body: |-
+      The ad server fires events asynchronously and does not wait. If the analytics pipeline is down, ads still serve and events are dropped or buffered locally. Analytics completeness is subordinate to ad delivery — state that priority explicitly.
+  - title: "Partitioning by ad_id"
+    body: |-
+      Gives per-ad ordering and lets stateful operators keep per-key state locally. The risk is a hot key: one viral ad concentrates on one partition. Mitigate by salting the key for known-hot ads (`ad_123#0..9`) and summing the sub-aggregates downstream — you trade a merge step for even distribution.
+followUps:
+  - question: "A bug caused three days of wrong aggregates. How do you fix it?"
+    answer: "Fix the code, replay from the archived raw events (or Kafka if within retention) into a new output table, validate, then swap. This is the whole reason raw events are archived immutably — reprocessing is a first-class operation, not an emergency."
+  - question: "How do you detect click fraud?"
+    answer: "A parallel stateful stream job: per-user click rate on the same ad, click-to-impression ratios that are statistically impossible, known datacenter IP ranges, and timing patterns too regular to be human. Flag rather than delete, so the decision is auditable and reversible."
+  - question: "Dashboard shows 1,000 clicks; billing says 970. How do you explain that?"
+    answer: "Expected and correct: the dashboard is the streaming estimate including unfiltered and late-corrected data; billing is the batch-reconciled figure with fraud excluded. The key is that the discrepancy is *explainable and reconcilable*, not mysterious. Expose both numbers rather than hiding the difference."
+  - question: "What if Kafka retention expires before you notice a bug?"
+    answer: "That's why raw events are archived to object storage independently of Kafka retention. Kafka is a transport buffer; the archive is the permanent record."
+  - question: "How do you handle a 10x traffic spike?"
+    answer: "Kafka absorbs it (that's its job); autoscale Flink task managers on consumer lag; the OLAP store's write path batches naturally. Lag rising is the alert, and it's a leading indicator rather than a user-visible symptom."
+  - question: "Can you support arbitrary ad-hoc dimensions?"
+    answer: "Not from pre-aggregates — those are fixed by the dimensions you chose. Ad-hoc slicing requires querying raw data in the warehouse, which is slower and more expensive. That's a real product boundary, and naming it is better than pretending pre-aggregation is free."
+---
 # 13 — Ad Click Aggregation / Real-Time Analytics
-
-## Primary concepts and the hard part
-
-**Concepts:** stream processing, event time vs processing time, watermarks, windowing, exactly-once semantics, Lambda vs Kappa architecture, OLAP storage, deduplication at extreme volume, backfill and reprocessing.
-
-**The hard part they're probing:** **event time**. Clicks arrive late, out of order, and duplicated. Aggregating by arrival time is easy and wrong — it puts a click that happened at 10:00 into the 10:07 bucket, and advertisers are billed from these numbers. They want to see watermarks, late-data policy, and a story for correcting yesterday's totals.
-
----
-
-## Requirements
-
-**Functional**
-- Ingest ad impression and click events
-- Aggregate counts per (ad_id, minute), per campaign, per country/device
-- Serve near-real-time dashboards (last few minutes)
-- Serve historical reports (arbitrary ranges, arbitrary dimensions)
-- Detect and exclude fraudulent/duplicate clicks
-- Support billing — numbers must eventually be *exactly* right
-
-**Non-functional**
-- Ingest 1M events/sec, spiky
-- Dashboard freshness: under ~1 minute
-- Billing accuracy: exact, reconcilable, auditable
-- Must tolerate late-arriving events (mobile offline, retries)
-- Must support reprocessing after a bug
-
-**Out of scope:** ad serving/auction (a different, latency-critical system), ML click prediction.
-
-**Scale**
-```
-Events:       1M/sec → 86B/day
-Event size:   ~200B → 17 TB/day raw
-Cardinality:  1M ads × 1,440 minutes = 1.4B aggregate rows/day (before dimensions)
-Query load:   dashboards ~1,000/sec; reports lower volume, heavier
-```
-**Conclusion:** raw events are too big to query directly and too valuable to discard. So: keep raw in cheap storage for reprocessing, serve queries from pre-aggregates. That split is the architecture.
-
----
 
 ## API / Model
 
@@ -115,6 +173,10 @@ flowchart TB
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Archive,OLAP store
     class Window,Water hot
+
+    click Bus href "/docs/05-async-messaging-and-event-driven" "Role: the durable buffer for every ad event, partitioned by ad_id.<br/>Trade-off: 7-day retention limits how far back a replay can go."
+    click Flink href "/docs/09-specialized-building-blocks" "Role: dedupes and aggregates events into minute windows in real time.<br/>Trade-off: late events need watermarks, and stateful jobs are harder to operate."
+    click Archive href "/docs/09-specialized-building-blocks" "Role: immutable raw events kept beyond Kafka retention, so numbers can be recomputed.<br/>Trade-off: batch recomputation is slow, but it is the source of truth for billing."
 ```
 
 <details>
@@ -214,59 +276,3 @@ flowchart TB
 </details>
 
 ---
-
-## Trade-offs and deep dives
-
-**Event time vs processing time — the core of the whole design.**
-
-```
-  A click HAPPENS at 10:00:30 on a phone that's in a tunnel.
-  It ARRIVES at your ingest at 10:07:15.
-
-  Processing-time windowing → counted in the 10:07 bucket.  WRONG.
-  Event-time windowing      → counted in the 10:00 bucket.  RIGHT.
-```
-
-Advertisers are billed per minute and compare your numbers against their own. Attributing a click to the wrong minute is a billing dispute. Windowing must use the event's own timestamp.
-
-But event-time windowing raises the question: when do you decide the 10:00 window is finished? You can't wait forever. That's what watermarks are for.
-
-**Watermarks, explained.** A watermark is the processor's assertion: "I believe all events with timestamp earlier than T have now arrived." It's typically computed as `max_observed_event_time − allowed_lateness`. When the watermark passes a window's end, the window fires and emits its result.
-
-The trade-off is explicit and worth stating: a **larger** allowed-lateness δ captures more stragglers but delays every result by δ. A **smaller** δ gives fresher dashboards but drops or defers more late data. Pick δ from the observed distribution of arrival delay (e.g. δ = p99 of `arrival_time − event_time`), and say you'd measure it rather than guess.
-
-**Late data policy — three tiers.** Have an answer for each:
-1. *Within the watermark* — included normally.
-2. *After the window fired but within a grace period* — emit an updated result (a retraction plus a new value). Downstream stores must support upsert, which is why the OLAP layer is keyed by (ad, minute, dimensions) rather than append-only.
-3. *Beyond grace* — route to a side output and let the nightly batch job fix it. Don't distort the streaming pipeline to chase the long tail.
-
-**Lambda vs Kappa, and why this design is Lambda-ish.**
-- *Kappa* (stream only, reprocess by replaying) is simpler and increasingly the default.
-- *Lambda* (stream for speed, batch for truth) duplicates logic in two systems, which can drift.
-
-For billing, the honest answer is a **hybrid that leans Kappa**: one stream pipeline produces the live numbers, and a *reprocessing run of the same code* over archived raw events produces the authoritative nightly figures. You get the correctness of a batch layer without maintaining two separate implementations. Stating it that way — same code, replayed — shows you understand why classic Lambda is criticized.
-
-**Exactly-once, scoped honestly.** Flink's checkpointing gives exactly-once *state* semantics within the pipeline: on recovery, it restores state and rewinds Kafka offsets so no event is double-counted internally. But the moment you write to an external store, you need either a transactional sink or idempotent upserts keyed by (ad_id, window, dimensions). The end-to-end guarantee is *effectively* exactly-once, built from at-least-once delivery plus idempotent writes — the same framing as Module 5, applied to analytics.
-
-Application-level dedupe on `event_id` is still required, because the ad server itself may retry and send the same event twice. That's outside Flink's guarantee entirely.
-
-**Why an OLAP store.** These queries scan billions of rows to compute sums grouped by a few dimensions. A row-oriented OLTP database reads entire rows off disk to sum one column. Columnar stores read only the columns referenced, compress each column separately (very effectively, since adjacent values are similar), and vectorize the scan. Orders of magnitude difference for exactly this access pattern. Never run these reports against the transactional database.
-
-**Pre-aggregation and rollups.** Storing every raw event forever in the query store is unaffordable. Pre-aggregate at ingestion to minute granularity, then roll minutes into hours after a few days and hours into days after a few months. Query granularity degrades with age, which matches how people actually use analytics — nobody needs minute-level data from eighteen months ago.
-
-**Unique counts need sketches.** "Unique users who saw this ad" cannot be pre-aggregated by simple addition — you can't sum two unique-counts. Use **HyperLogLog** sketches, which are mergeable: the union of two sketches gives the unique count of the union, in a few KB, with ~2% error. If exact uniques are required for billing, compute them in the batch layer over raw data. This is a great place to show you know when approximation is acceptable and when it isn't.
-
-**Ingest must never block ad serving.** The ad server fires events asynchronously and does not wait. If the analytics pipeline is down, ads still serve and events are dropped or buffered locally. Analytics completeness is subordinate to ad delivery — state that priority explicitly.
-
-**Partitioning by ad_id.** Gives per-ad ordering and lets stateful operators keep per-key state locally. The risk is a hot key: one viral ad concentrates on one partition. Mitigate by salting the key for known-hot ads (`ad_123#0..9`) and summing the sub-aggregates downstream — you trade a merge step for even distribution.
-
----
-
-## Possible follow-up questions
-
-- *A bug caused three days of wrong aggregates. How do you fix it?* Fix the code, replay from the archived raw events (or Kafka if within retention) into a new output table, validate, then swap. This is the whole reason raw events are archived immutably — reprocessing is a first-class operation, not an emergency.
-- *How do you detect click fraud?* A parallel stateful stream job: per-user click rate on the same ad, click-to-impression ratios that are statistically impossible, known datacenter IP ranges, and timing patterns too regular to be human. Flag rather than delete, so the decision is auditable and reversible.
-- *Dashboard shows 1,000 clicks; billing says 970. How do you explain that?* Expected and correct: the dashboard is the streaming estimate including unfiltered and late-corrected data; billing is the batch-reconciled figure with fraud excluded. The key is that the discrepancy is *explainable and reconcilable*, not mysterious. Expose both numbers rather than hiding the difference.
-- *What if Kafka retention expires before you notice a bug?* That's why raw events are archived to object storage independently of Kafka retention. Kafka is a transport buffer; the archive is the permanent record.
-- *How do you handle a 10x traffic spike?* Kafka absorbs it (that's its job); autoscale Flink task managers on consumer lag; the OLAP store's write path batches naturally. Lag rising is the alert, and it's a leading indicator rather than a user-visible symptom.
-- *Can you support arbitrary ad-hoc dimensions?* Not from pre-aggregates — those are fixed by the dimensions you chose. Ad-hoc slicing requires querying raw data in the warehouse, which is slower and more expensive. That's a real product boundary, and naming it is better than pretending pre-aggregation is free.
