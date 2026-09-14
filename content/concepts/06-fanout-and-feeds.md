@@ -190,6 +190,8 @@ flowchart TB
     Topic --> S1
     Graph["subscription / graph service"] --> S2
     S4 --> Store[("per-user feed store<br/>partition key = user_id<br/>sort key = timestamp")]
+
+    click Topic href "/docs/05-async-messaging-and-event-driven" "Role: buffers activity events so fan-out workers can scale out and fall behind safely.<br/>Trade-off: feeds become eventually consistent, and ordering holds only within a partition."
 ```
 
 <details>

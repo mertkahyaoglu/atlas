@@ -65,6 +65,19 @@ function decodeLabelEntities(root: HTMLElement) {
   });
 }
 
+/**
+ * Mermaid writes a node's tooltip as escaped text and only restores the exact
+ * string `<br/>`, but sanitizing may have turned it into `<br>`. Runs after
+ * Mermaid's own hover handler and turns any escaped break back into a real one.
+ * Only break tokens are unescaped; everything else stays escaped text.
+ */
+function restoreTooltipBreaks() {
+  const tooltip = document.querySelector(".mermaidTooltip");
+  if (tooltip && tooltip.innerHTML.includes("&lt;br")) {
+    tooltip.innerHTML = tooltip.innerHTML.replace(/&lt;br\s*\/?&gt;/gi, "<br>");
+  }
+}
+
 export function Mermaid({ chart }: { chart: string }) {
   const theme = useUiStore((s) => s.theme);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,10 +105,15 @@ export function Mermaid({ chart }: { chart: string }) {
       });
 
       try {
-        const { svg } = await mermaid.render(graphId, chart);
+        const { svg, bindFunctions } = await mermaid.render(graphId, chart);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
           decodeLabelEntities(containerRef.current);
+          // Attaches node tooltips and links declared with `click` in the chart.
+          bindFunctions?.(containerRef.current);
+          containerRef.current.querySelectorAll(".node[title]").forEach((node) => {
+            node.addEventListener("mouseover", restoreTooltipBreaks);
+          });
           setError(null);
         }
       } catch (err) {

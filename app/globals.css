@@ -256,6 +256,49 @@
   font-family: var(--font-mono), monospace !important;
 }
 
+/* Nodes with a `click` tooltip light up on hover; linked ones show a pointer.
+   classDef styles are inline and !important, so they can win the stroke; the
+   glow is a filter on the group and applies either way. */
+.mermaid-host .node {
+  transition: filter 120ms ease;
+}
+.mermaid-host .node :is(rect, polygon, circle, ellipse, path) {
+  transition: stroke 120ms ease;
+}
+.mermaid-host .node[title]:hover {
+  filter: drop-shadow(0 0 4px var(--accent));
+}
+.mermaid-host .node[title]:hover :is(rect, polygon, circle, ellipse, path) {
+  stroke: var(--accent) !important;
+}
+.mermaid-host .node.clickable {
+  cursor: pointer;
+}
+/* Linked nodes are wrapped in <a>; the prose link underline doesn't belong there. */
+.doc .mermaid-host a {
+  text-decoration: none;
+}
+
+/* Mermaid appends its tooltip to <body>, outside the diagram's scoped styles,
+   and positions it at the bottom centre of the hovered node. */
+.mermaidTooltip {
+  position: absolute;
+  z-index: 50;
+  max-width: min(20rem, calc(100vw - 2rem));
+  transform: translate(-50%, 6px);
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  text-align: left;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
 /* Collapsed plain-text fallback beneath each rendered diagram. */
 @layer components {
   .doc details {

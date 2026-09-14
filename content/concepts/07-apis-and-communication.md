@@ -165,6 +165,9 @@ flowchart TB
     PubSub --> G1 & G2 & G3
     Registry[("Connection registry<br/>user_id → gateway node<br/>Redis, TTL heartbeats")]
     Registry --> PubSub
+
+    click LB href "/docs/01-foundations" "Role: spreads new socket connections across gateway nodes.<br/>Trade-off: connections are long-lived, so load stays uneven after scaling or restarts."
+    click PubSub href "/docs/05-async-messaging-and-event-driven" "Role: carries a message to whichever gateway holds the recipient's socket.<br/>Trade-off: one more hop and failure point, and Redis pub/sub drops messages nobody is subscribed for."
 ```
 
 <details>

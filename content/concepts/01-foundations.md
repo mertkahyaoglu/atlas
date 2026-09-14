@@ -52,6 +52,10 @@ flowchart TB
 
     classDef hot stroke:#e8a33d,stroke-width:2px
     class DB hot
+
+    click Cache href "/docs/04-caching" "Role: absorbs repeated reads so most requests never reach the database.<br/>Trade-off: cached data can be stale, and a cold or failed cache sends full load to the database."
+    click Queue href "/docs/05-async-messaging-and-event-driven" "Role: hands slow work like emails and image resizing to background workers so requests return fast.<br/>Trade-off: work finishes later, and failed jobs need retries and monitoring."
+    click DB href "/docs/02-data-storage" "Role: the source of truth every other component ultimately depends on.<br/>Trade-off: the hardest part to scale, because writes can't simply be copied across machines."
 ```
 
 <details>

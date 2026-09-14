@@ -5,45 +5,98 @@ title: "Ticketmaster / Booking"
 summary: "Fifty thousand people wanting the same hundred seats in the same second."
 hardPart: "This is contention, not scale. Row lock contention breaks first, not throughput — so the answer is admission control in front of the application tier, not a bigger cluster."
 tags: ["concurrency", "consistency", "postgres", "saga"]
----
+hardPartDetail: "This is a **contention** problem, not a scale problem. 50,000 people all want the same 100 seats in the same second. Row-level lock contention, not throughput, is what breaks. Candidates who apply feed-system instincts (cache everything, fan out, eventual consistency) fail this one."
+concepts:
+  - "pessimistic vs optimistic locking"
+  - "distributed locks with TTL"
+  - "extreme contention on a small dataset"
+  - "virtual waiting rooms"
+  - "admission control"
+  - "sagas"
+  - "cache-vs-truth divergence"
+requirements:
+  functional:
+    - "Browse events, view seat availability"
+    - "Select specific seats, hold them temporarily while checking out"
+    - "Complete purchase; hold expires and releases if abandoned"
+    - "Support both reserved seating and general admission"
+    - "Cancellations and refunds"
+  nonFunctional:
+    - "**Never double-sell a seat.** Hard invariant."
+    - "Handle massive spikes: near-zero traffic, then 100x for 60 seconds at on-sale"
+    - "Fair-ish access; not purely \"fastest network wins\""
+    - "Availability display can be slightly stale; the *purchase* cannot be"
+  outOfScope: "dynamic pricing, bot detection specifics (mention it matters enormously), secondary market."
+scale:
+  numbers: |-
+    Normal traffic:        1,000 req/sec
+    On-sale spike:         100,000 req/sec for ~60s   ← the design driver
+    Seats per big event:   50,000
+    Concurrent buyers:     500,000 chasing 50,000 seats (10:1 oversubscription)
+  conclusion: "The dataset is tiny (50,000 rows) and the traffic is enormous and bursty. This inverts every normal instinct: you don't need sharding or a big cluster, you need **admission control** to keep 500,000 people from touching 50,000 rows simultaneously."
+tradeoffs:
+  - title: "The waiting room is the most important component"
+    body: |-
+      Without it, 500,000 concurrent requests hit 50,000 rows and the database dies on lock contention — not on CPU, on *waiting*. The waiting room converts an uncontrolled stampede into a controlled admission rate matched to what the booking tier can actually process. It also gives users an honest experience (a queue position and ETA) instead of an error page, and it makes the system's load predictable rather than a function of how popular the event turned out to be.
 
+      This is admission control from Module 8, and recognizing that it belongs *before* the application tier rather than inside it is the senior insight.
+  - title: "Pessimistic vs optimistic locking — choose and justify"
+    body: |-
+      ```
+      PESSIMISTIC (SELECT ... FOR UPDATE)
+        Lock the rows, then check and update. Other transactions block.
+        ✓ No wasted work, no retry storms
+        ✓ Correct under heavy contention          ← the case here
+        ✗ Holds locks; risk of deadlock if lock order varies
+
+      OPTIMISTIC (version column, compare-and-swap)
+        UPDATE seats SET state='HELD', version=version+1
+         WHERE seat_id=? AND version=? AND state='AVAILABLE'
+        Check rows-affected: 0 means someone beat you.
+        ✓ No locks held, great when conflicts are RARE
+        ✗ Under 10:1 oversubscription, almost everyone loses and retries
+          → retry storm makes contention worse
+      ```
+
+      For a hot on-sale, **pessimistic wins**, because conflicts are the norm rather than the exception and optimistic retries amplify load exactly when you can least afford it. Optimistic is fine for ordinary, low-contention bookings. Being able to say "which one depends on the conflict rate, and here the conflict rate is enormous" is the answer they're looking for.
+  - title: "Deadlock prevention"
+    body: |-
+      When holding multiple seats, always acquire locks in a consistent order (sort seat IDs). Two transactions grabbing seats A and B in opposite orders will deadlock. Sorting eliminates the cycle. Small detail, real bug, good signal.
+  - title: "Holds need a TTL, and expiry must be checked twice"
+    body: |-
+      A hold that never expires means an abandoned checkout permanently removes a seat from sale. Set `hold_expires_at`, run a sweeper to reclaim expired holds *and* check expiry at read/hold time. Relying solely on the sweeper means a brief window where an expired hold still blocks a sale; relying solely on read-time checks means expired holds linger in the data. Do both.
+  - title: "The cache is deliberately stale, and that's correct"
+    body: |-
+      The seat map shown while browsing is a cached snapshot with a 2-5 second TTL. It will sometimes show a seat that was just taken. That is acceptable and unavoidable — any attempt to make the browse view perfectly accurate under 100k req/sec will destroy the database. The contract with the user is: the map is a hint, the truth is decided when you press "hold," and a 409 at that point is a normal, expected outcome that the UI must handle gracefully. Stating this boundary between "eventually consistent display" and "strongly consistent transaction" is the core trade-off of the design.
+  - title: "Shard by event"
+    body: |-
+      All contention for one event lands on one partition. That sounds bad, but it's actually the goal: it means a hot on-sale for one stadium show cannot degrade every other event on the platform. Blast-radius containment. Since the dataset per event is tiny, one partition handles it comfortably once the waiting room caps the arrival rate.
+  - title: "General admission is a different problem"
+    body: |-
+      No seat map, just a counter. Use an atomic decrement (`UPDATE ... SET sold = sold + 1 WHERE sold < total`) or a Redis counter with a conditional. Much cheaper, no row-level contention, and worth distinguishing from reserved seating explicitly — they often ask about both.
+  - title: "Checkout is a saga"
+    body: |-
+      Charge payment, mark seats sold, issue tickets. If payment fails, release the hold. If ticket issuance fails after a successful charge, do *not* release seats — retry issuance, because the customer has paid. Deciding which failures compensate and which retry is the substance of saga design, and it's worth walking through rather than just saying "saga."
+  - title: "Bots"
+    body: |-
+      At a real on-sale, most of that 500,000 is automated. Defences: queue tokens tied to authenticated accounts, device fingerprinting, per-account purchase caps enforced at hold time, CAPTCHAs on entry to the queue rather than at checkout (where they'd cost you real conversions), and rate limits per account. Mention it — a Ticketmaster design that ignores bots is missing the actual production problem.
+followUps:
+  - question: "A user holds seats then closes their laptop."
+    answer: "TTL expires, sweeper releases, seats return to inventory. This is why holds are time-boxed and why the expiry is checked at both read and write time."
+  - question: "Two users select overlapping seats simultaneously."
+    answer: "First transaction to acquire the row locks wins; the second finds them non-`AVAILABLE` and gets a 409 with a suggestion of nearby alternatives. The UX of losing gracefully matters as much as the locking."
+  - question: "How do you make the queue fair?"
+    answer: "Strict FIFO by arrival favours whoever has the fastest connection. A common alternative is a randomized lottery among everyone who joined during a registration window — fairer, and it flattens the spike entirely since admission is scheduled. Worth offering as an alternative design."
+  - question: "Can you use eventual consistency anywhere in the purchase path?"
+    answer: "No. That's the point of this problem, and saying so firmly is better than hedging."
+  - question: "How do you handle a venue changing the seat map after sales start?"
+    answer: "Version the seat map; existing holds and bookings reference the version they were made under. Never mutate a seat map in place once sales are live."
+  - question: "What breaks first at 10x?"
+    answer: "Nothing, if the waiting room is doing its job — that's its purpose. Without it, database lock contention breaks first, well before CPU or storage."
+  - question: "Refunds and cancellations?"
+    answer: "Reverse via a saga (refund payment, return seats to `AVAILABLE`), and decide the product rule on whether returned seats go back on public sale or to a waitlist."
+---
 # 11 — Ticketmaster / Booking System
-
-## Primary concepts and the hard part
-
-**Concepts:** pessimistic vs optimistic locking, distributed locks with TTL, extreme contention on a small dataset, virtual waiting rooms, admission control, sagas, cache-vs-truth divergence.
-
-**The hard part they're probing:** this is a **contention** problem, not a scale problem. 50,000 people all want the same 100 seats in the same second. Row-level lock contention, not throughput, is what breaks. Candidates who apply feed-system instincts (cache everything, fan out, eventual consistency) fail this one.
-
----
-
-## Requirements
-
-**Functional**
-- Browse events, view seat availability
-- Select specific seats, hold them temporarily while checking out
-- Complete purchase; hold expires and releases if abandoned
-- Support both reserved seating and general admission
-- Cancellations and refunds
-
-**Non-functional**
-- **Never double-sell a seat.** Hard invariant.
-- Handle massive spikes: near-zero traffic, then 100x for 60 seconds at on-sale
-- Fair-ish access; not purely "fastest network wins"
-- Availability display can be slightly stale; the *purchase* cannot be
-
-**Out of scope:** dynamic pricing, bot detection specifics (mention it matters enormously), secondary market.
-
-**Scale**
-```
-Normal traffic:        1,000 req/sec
-On-sale spike:         100,000 req/sec for ~60s   ← the design driver
-Seats per big event:   50,000
-Concurrent buyers:     500,000 chasing 50,000 seats (10:1 oversubscription)
-```
-**Conclusion:** the dataset is tiny (50,000 rows) and the traffic is enormous and bursty. This inverts every normal instinct: you don't need sharding or a big cluster, you need **admission control** to keep 500,000 people from touching 50,000 rows simultaneously.
-
----
 
 ## API / Model
 
@@ -116,6 +169,11 @@ flowchart TB
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Browse,DB store
     class Queue,Hold hot
+
+    click Queue href "/docs/04-caching" "Role: a waiting room that admits users at the rate booking can handle.<br/>Trade-off: users wait, but the booking path survives the on-sale spike."
+    click Browse href "/docs/04-caching" "Role: a fast, deliberately stale seat map for browsing.<br/>Trade-off: a seat shown as free may already be held, and the hold step decides."
+    click DB href "/docs/02-data-storage" "Role: the single authority on seat state, sharded by event.<br/>Trade-off: strict consistency caps write throughput on each event's shard."
+    click SeatEvents href "/docs/05-async-messaging-and-event-driven" "Role: seat changes invalidate caches and refresh live seat maps.<br/>Trade-off: maps lag slightly, so clients must handle hold conflicts."
 ```
 
 <details>
@@ -219,55 +277,3 @@ flowchart TB
 </details>
 
 ---
-
-## Trade-offs and deep dives
-
-**The waiting room is the most important component.** Without it, 500,000 concurrent requests hit 50,000 rows and the database dies on lock contention — not on CPU, on *waiting*. The waiting room converts an uncontrolled stampede into a controlled admission rate matched to what the booking tier can actually process. It also gives users an honest experience (a queue position and ETA) instead of an error page, and it makes the system's load predictable rather than a function of how popular the event turned out to be.
-
-This is admission control from Module 8, and recognizing that it belongs *before* the application tier rather than inside it is the senior insight.
-
-**Pessimistic vs optimistic locking — choose and justify.**
-
-```
-PESSIMISTIC (SELECT ... FOR UPDATE)
-  Lock the rows, then check and update. Other transactions block.
-  ✓ No wasted work, no retry storms
-  ✓ Correct under heavy contention          ← the case here
-  ✗ Holds locks; risk of deadlock if lock order varies
-
-OPTIMISTIC (version column, compare-and-swap)
-  UPDATE seats SET state='HELD', version=version+1
-   WHERE seat_id=? AND version=? AND state='AVAILABLE'
-  Check rows-affected: 0 means someone beat you.
-  ✓ No locks held, great when conflicts are RARE
-  ✗ Under 10:1 oversubscription, almost everyone loses and retries
-    → retry storm makes contention worse
-```
-
-For a hot on-sale, **pessimistic wins**, because conflicts are the norm rather than the exception and optimistic retries amplify load exactly when you can least afford it. Optimistic is fine for ordinary, low-contention bookings. Being able to say "which one depends on the conflict rate, and here the conflict rate is enormous" is the answer they're looking for.
-
-**Deadlock prevention.** When holding multiple seats, always acquire locks in a consistent order (sort seat IDs). Two transactions grabbing seats A and B in opposite orders will deadlock. Sorting eliminates the cycle. Small detail, real bug, good signal.
-
-**Holds need a TTL, and expiry must be checked twice.** A hold that never expires means an abandoned checkout permanently removes a seat from sale. Set `hold_expires_at`, run a sweeper to reclaim expired holds *and* check expiry at read/hold time. Relying solely on the sweeper means a brief window where an expired hold still blocks a sale; relying solely on read-time checks means expired holds linger in the data. Do both.
-
-**The cache is deliberately stale, and that's correct.** The seat map shown while browsing is a cached snapshot with a 2-5 second TTL. It will sometimes show a seat that was just taken. That is acceptable and unavoidable — any attempt to make the browse view perfectly accurate under 100k req/sec will destroy the database. The contract with the user is: the map is a hint, the truth is decided when you press "hold," and a 409 at that point is a normal, expected outcome that the UI must handle gracefully. Stating this boundary between "eventually consistent display" and "strongly consistent transaction" is the core trade-off of the design.
-
-**Shard by event.** All contention for one event lands on one partition. That sounds bad, but it's actually the goal: it means a hot on-sale for one stadium show cannot degrade every other event on the platform. Blast-radius containment. Since the dataset per event is tiny, one partition handles it comfortably once the waiting room caps the arrival rate.
-
-**General admission is a different problem.** No seat map, just a counter. Use an atomic decrement (`UPDATE ... SET sold = sold + 1 WHERE sold < total`) or a Redis counter with a conditional. Much cheaper, no row-level contention, and worth distinguishing from reserved seating explicitly — they often ask about both.
-
-**Checkout is a saga.** Charge payment, mark seats sold, issue tickets. If payment fails, release the hold. If ticket issuance fails after a successful charge, do *not* release seats — retry issuance, because the customer has paid. Deciding which failures compensate and which retry is the substance of saga design, and it's worth walking through rather than just saying "saga."
-
-**Bots.** At a real on-sale, most of that 500,000 is automated. Defences: queue tokens tied to authenticated accounts, device fingerprinting, per-account purchase caps enforced at hold time, CAPTCHAs on entry to the queue rather than at checkout (where they'd cost you real conversions), and rate limits per account. Mention it — a Ticketmaster design that ignores bots is missing the actual production problem.
-
----
-
-## Possible follow-up questions
-
-- *A user holds seats then closes their laptop.* TTL expires, sweeper releases, seats return to inventory. This is why holds are time-boxed and why the expiry is checked at both read and write time.
-- *Two users select overlapping seats simultaneously.* First transaction to acquire the row locks wins; the second finds them non-`AVAILABLE` and gets a 409 with a suggestion of nearby alternatives. The UX of losing gracefully matters as much as the locking.
-- *How do you make the queue fair?* Strict FIFO by arrival favours whoever has the fastest connection. A common alternative is a randomized lottery among everyone who joined during a registration window — fairer, and it flattens the spike entirely since admission is scheduled. Worth offering as an alternative design.
-- *Can you use eventual consistency anywhere in the purchase path?* No. That's the point of this problem, and saying so firmly is better than hedging.
-- *How do you handle a venue changing the seat map after sales start?* Version the seat map; existing holds and bookings reference the version they were made under. Never mutate a seat map in place once sales are live.
-- *What breaks first at 10x?* Nothing, if the waiting room is doing its job — that's its purpose. Without it, database lock contention breaks first, well before CPU or storage.
-- *Refunds and cancellations?* Reverse via a saga (refund payment, return seats to `AVAILABLE`), and decide the product rule on whether returned seats go back on public sale or to a waitlist.
