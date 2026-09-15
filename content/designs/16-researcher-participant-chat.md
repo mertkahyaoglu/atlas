@@ -193,14 +193,15 @@ Two columns on `conversations` carry most of the design. The `(study_id, researc
 ```mermaid
 flowchart TB
     P([Participant]) -- "WSS · send" --> GWA["WS gateway #1<br/>sender's socket"]
-    GWA --> Gate
+    GWA -- "1 · send frame" --> Limit
 
-    subgraph SEND ["Chat service · one transaction"]
+    subgraph SEND ["Chat service"]
         direction TB
-        Gate["1 · gate, else 409 / 429<br/>conversation open<br/>before writable_until<br/>not blocked · under limit"]
-        Write["2 · insert message<br/>+ outbox row<br/>dedupe on client_msg_id"]
-        Ack["3 · commit, then ack"]
-        Gate --> Write --> Ack
+        Limit["2 · rate limit<br/>Redis bucket, else 429"]
+        Gate["3 · BEGIN · gate, else 409<br/>conversation open<br/>before writable_until<br/>not blocked"]
+        Write["insert message<br/>+ outbox row<br/>dedupe on client_msg_id"]
+        Ack["COMMIT, then ack sent"]
+        Limit --> Gate --> Write --> Ack
     end
 
     Study["Study service<br/>owns study state"] -. "lifecycle events" .-> Consumer["Lifecycle consumer<br/>study_version guard"]
@@ -208,7 +209,7 @@ flowchart TB
     Write --> PG[("Postgres · truth<br/>sync standby<br/>messages · outbox<br/>audit_log")]
 
     Ack -- "4 · publish" --> Redis{{"Redis<br/>pub/sub doorbell<br/>rate-limit buckets"}}
-    Redis -- "5 · subscribed gateway" --> GWB["WS gateway #3<br/>recipient's socket"]
+    Redis -- "5 · push" --> GWB["WS gateway #3<br/>recipient's socket"]
     GWB -- "WSS · alias only" --> R([Researcher])
 
     PG --> Notifier["Notifier worker<br/>skip if read · debounce"]
@@ -224,7 +225,8 @@ flowchart TB
     class Gate,Staff hot
 
     click GWA href "/docs/07-apis-and-communication" "Role: holds the sender's socket and forwards frames to the chat service.<br/>Trade-off: stateful, but three nodes with a spare is the whole scaling story here."
-    click Gate href "/docs/03-consistency-and-distributed-systems" "Role: checks study state, blocks and rate limits in the same transaction as the insert.<br/>Trade-off: state is materialized from events, so a study closure lands a few seconds late."
+    click Limit href "/docs/07-apis-and-communication" "Role: rejects a sender whose token bucket is empty, before any database work.<br/>Trade-off: one Redis round trip per send, and a Redis outage forces a fail-open or fail-closed choice."
+    click Gate href "/docs/03-consistency-and-distributed-systems" "Role: checks conversation state and blocks inside the send transaction, before the insert.<br/>Trade-off: state is materialized from events, so a study closure lands a few seconds late."
     click PG href "/docs/02-data-storage" "Role: source of truth for conversations, messages, the outbox and the audit log.<br/>Trade-off: the synchronous standby adds a little commit latency so failover never loses an acked message."
     click Redis href "/docs/05-async-messaging-and-event-driven" "Role: rings the recipient's gateway after commit and holds rate-limit buckets.<br/>Trade-off: pub/sub drops publishes nobody hears, so clients resync from Postgres on reconnect."
     click Consumer href "/docs/05-async-messaging-and-event-driven" "Role: turns study lifecycle events into conversation state.<br/>Trade-off: events repeat and reorder, so every update is guarded by study_version."
@@ -291,9 +293,9 @@ flowchart TB
 
 Everything durable lives in Postgres. The WS gateways hold sockets, Redis rings the recipient's gateway and holds rate-limit buckets, and the remaining boxes are side flows that read or write the same database.
 
-1. The participant sends a frame over WSS to WS gateway #1, which forwards it to the Chat service. The gate rejects the send with 429 if the sender's rate-limit bucket in Redis is empty, and with 409 unless the conversation is open, still before `writable_until`, and not blocked.
-2. In one transaction, the Chat service inserts the message and a `notification_outbox` row, deduping on `client_msg_id`.
-3. It commits, and only then acks `sent` to the participant with the new `message_id`.
+1. The participant sends a frame over WSS to WS gateway #1, which forwards it to the Chat service.
+2. The Chat service checks the sender's token bucket in Redis and rejects the send with 429 if it's empty, before any database work.
+3. Inside one transaction, the gate rejects the send with 409 unless the conversation is open, still before `writable_until`, and not blocked. Otherwise the service inserts the message and a `notification_outbox` row, deduping on `client_msg_id`, commits, and only then acks `sent` to the participant with the new `message_id`.
 4. It publishes to the recipient's Redis channel, `user:<id>`.
 5. Redis delivers the publish to the subscribed gateway, WS gateway #3, which pushes the message to the researcher over WSS with the participant's alias only.
 
