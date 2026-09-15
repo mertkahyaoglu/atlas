@@ -28,7 +28,10 @@ requirements:
     - "Throughput: billions of pages, thousands of fetches/sec"
     - "Robust: must survive malformed HTML, infinite redirects, crawler traps"
     - "Extensible: new content types and extractors"
-  outOfScope: "the search index itself (that's design 06), JavaScript rendering (mention the cost), ranking."
+  outOfScope:
+    - "The search index itself (that's design 06)"
+    - "JavaScript rendering (mention the cost)"
+    - "Ranking"
 scale:
   numbers: |-
     Pages to crawl:     10B

@@ -48,7 +48,7 @@ export interface DesignDetails {
   requirements: {
     functional: string[];
     nonFunctional: string[];
-    outOfScope?: string;
+    outOfScope: string[];
   };
   scale?: {
     numbers: string;

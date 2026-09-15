@@ -39,7 +39,7 @@ function readDesign(slug: string, data: Record<string, unknown>): DesignDetails 
     requirements: {
       functional: strings(requirements.functional),
       nonFunctional: strings(requirements.nonFunctional),
-      outOfScope: requirements.outOfScope ? String(requirements.outOfScope) : undefined,
+      outOfScope: strings(requirements.outOfScope),
     },
     scale: scale.numbers
       ? {
@@ -80,7 +80,7 @@ function designWordCount(design: DesignDetails | undefined): number {
     ...design.concepts,
     ...design.requirements.functional,
     ...design.requirements.nonFunctional,
-    design.requirements.outOfScope ?? "",
+    ...design.requirements.outOfScope,
     design.scale?.numbers ?? "",
     design.scale?.conclusion ?? "",
     ...design.tradeoffs.flatMap((t) => [t.title, t.body]),

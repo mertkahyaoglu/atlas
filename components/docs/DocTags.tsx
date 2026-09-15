@@ -15,7 +15,7 @@ export function DocTags({ tags }: { tags: string[] }) {
   }
 
   return (
-    <div className="mt-6 flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5">
       {tags.map((tag) => (
         <Tag key={tag} id={tag} onClick={openTag} />
       ))}

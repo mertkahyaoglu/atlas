@@ -25,7 +25,12 @@ requirements:
     - "Home timeline load p99 < 200ms"
     - "Availability over consistency — a 5-second-stale timeline is fine, a failed load is not"
     - "Eventually consistent; posts appear within a few seconds"
-  outOfScope: "DMs, search, ML ranking, ads, notifications."
+  outOfScope:
+    - "DMs"
+    - "Search"
+    - "ML ranking"
+    - "Ads"
+    - "Notifications"
 scale:
   numbers: |-
     300M DAU · 

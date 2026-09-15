@@ -33,7 +33,13 @@ requirements:
     - "Participant identity is masked from the researcher unless revealed through an audited path"
     - "Abuse resistance is first-class: rate limits, reporting and moderation are part of the send path"
     - "Access is gated by study lifecycle state, not just by whether two users may talk"
-  outOfScope: "group chat, end-to-end encryption (it would blind support and moderation, so say why it's excluded), message search, typing indicators beyond a mention, multi-region deployment, voice and video."
+  outOfScope:
+    - "Group chat"
+    - "End-to-end encryption (it would blind support and moderation, so say why it's excluded)"
+    - "Message search"
+    - "Typing indicators beyond a mention"
+    - "Multi-region deployment"
+    - "Voice and video"
 scale:
   numbers: |-
     Participants: ~200k monthly active · researchers: ~10k

@@ -28,7 +28,11 @@ requirements:
     - "Messages must never be lost (durable before ack)"
     - "Consistent ordering *within a conversation*"
     - "Availability over global consistency"
-  outOfScope: "voice/video calls, E2E encryption key exchange (mention it exists), file transfer specifics, search."
+  outOfScope:
+    - "Voice/video calls"
+    - "E2E encryption key exchange (mention it exists)"
+    - "File transfer specifics"
+    - "Search"
 scale:
   numbers: |-
     500M DAU · 50M concurrent connections

@@ -10,13 +10,14 @@ import { DocTags } from "./DocTags";
  */
 export function DocHeader({ doc, showHardPart = true }: { doc: DocMeta; showHardPart?: boolean }) {
   return (
-    <header className="mb-12 border-b border-rule pb-8">
+    <header className="mb-14">
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <GroupBadge group={doc.group} />
         <span className="flex items-center gap-1.5 font-mono text-micro text-inkFaint">
           <Clock className="h-3 w-3" aria-hidden />
           {doc.readingMinutes} min
         </span>
+        {doc.tags.length > 0 && <DocTags tags={doc.tags} />}
         <span className="ml-auto">
           <CompleteButton slug={doc.slug} />
         </span>
@@ -33,8 +34,6 @@ export function DocHeader({ doc, showHardPart = true }: { doc: DocMeta; showHard
           </p>
         </div>
       )}
-
-      {doc.tags.length > 0 && <DocTags tags={doc.tags} />}
     </header>
   );
 }
