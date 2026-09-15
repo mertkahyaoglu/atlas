@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { buildToc, designToc, getAllDocs, getDoc, getSiblings, toMeta } from "@/lib/content";
-import { accentVar } from "@/lib/utils";
+import { accentVar, cn } from "@/lib/utils";
 import { TopBar } from "@/components/layout/TopBar";
 import { DocHeader } from "@/components/docs/DocHeader";
 import { Markdown } from "@/components/docs/Markdown";
@@ -39,7 +39,7 @@ export default function DocPage({ params }: PageProps) {
       <div className="mx-auto flex max-w-shell gap-12 px-4 pb-24 pt-10 sm:px-8">
         <main id="doc-main" className="min-w-0 flex-1">
           <DocHeader doc={toMeta(doc)} showHardPart={!doc.design} />
-          <article className="doc">
+          <article className={cn("doc", doc.group === "design" && "doc-design")}>
             {doc.design && <DesignOverview design={doc.design} />}
             <Markdown content={doc.content} />
             {doc.design && <DesignDeepDives design={doc.design} />}

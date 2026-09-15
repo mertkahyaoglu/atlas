@@ -204,6 +204,15 @@
     border-color: var(--accent);
   }
 
+  /* Design prose sits between full-width diagrams and panels, so it fills the
+     column too. Concept modules keep the reading measure. */
+  .doc-design p,
+  .doc-design ul,
+  .doc-design ol,
+  .doc-design blockquote {
+    @apply max-w-none;
+  }
+
   .doc hr {
     @apply my-12 border-0 border-t border-rule;
   }
