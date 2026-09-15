@@ -143,9 +143,11 @@ flowchart TB
     Conflict -- "base = current" --> Applied([applied])
     Conflict -- "base ≠ current" --> Keep["KEEP BOTH<br/>report.docx and<br/>'report (conflicted copy).docx'<br/>never silently discard work"]
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Blob,MetaDB,LocalIdx store
+    class MetaDB,LocalIdx db
+    class Blob blob
     class Chunker,Conflict hot
 
     click Blob href "/docs/09-specialized-building-blocks" "Role: stores each unique chunk once, shared across all users.<br/>Trade-off: dedupe saves storage, but deletes need refcounts and lazy garbage collection."

@@ -172,10 +172,16 @@ flowchart TB
     ReadPull -.-> ReadAPI
     Counters[("Redis · unread counters<br/>atomic INCR/DECR<br/>periodically reconciled")] --> ReadAPI
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Store,DLQ,Counters store
+    class Store,DLQ db
+    class Counters cache
     class Celeb hot
+    class Bus,Jobs queue
+    class APNs,SMTP external
 
     click Bus href "/docs/05-async-messaging-and-event-driven" "Role: every product event enters here, and 7-day retention allows replay after a bug.<br/>Trade-off: ordering only per entity, and consumers must dedupe."
     click Store href "/docs/02-data-storage" "Role: each user's notification inbox, read with cursor pagination.<br/>Trade-off: any query not keyed by user_id needs another table or index."

@@ -151,10 +151,16 @@ flowchart TB
     LocGW -- "ONLY drivers on active trips<br/>throttled to 1 update / 2s" --> TripChan{{"pub/sub · trip:{id}"}}
     TripChan --> RiderWS([Rider live map])
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Geo,Hist,TripStore store
+    class TripStore db
+    class Geo cache
+    class Hist blob
     class Lock hot
+    class Stream,TripChan queue
 
     click Geo href "/docs/04-caching" "Role: live driver positions for nearby-driver search, overwritten on every ping.<br/>Trade-off: in memory and lossy, so history has to live somewhere else."
     click Stream href "/docs/05-async-messaging-and-event-driven" "Role: the cold path that carries every location ping for analytics.<br/>Trade-off: huge volume and storage cost for data the matching path never needs."

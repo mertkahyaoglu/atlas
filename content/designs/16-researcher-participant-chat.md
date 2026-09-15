@@ -219,10 +219,14 @@ flowchart TB
     Retention["Retention + erasure<br/>honours legal_hold"] --> PG
     Retention --> Obj[("Object storage<br/>presigned PUT<br/>quarantine → scan")]
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class PG,Obj store
+    class PG db
+    class Obj blob
     class Gate,Staff hot
+    class Redis queue
 
     click GWA href "/docs/07-apis-and-communication" "Role: holds the sender's socket and forwards frames to the chat service.<br/>Trade-off: stateful, but three nodes with a spare is the whole scaling story here."
     click Limit href "/docs/07-apis-and-communication" "Role: rejects a sender whose token bucket is empty, before any database work.<br/>Trade-off: one Redis round trip per send, and a Redis outage forces a fail-open or fail-closed choice."

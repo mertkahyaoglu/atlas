@@ -157,9 +157,11 @@ flowchart TB
     Origin -- "SET back into cache" --> N1
     Origin -.- Failures["Failure modes at the miss path<br/>STAMPEDE · coalesce requests<br/>PENETRATION · cache negatives, Bloom filter<br/>AVALANCHE · TTL jitter, warm start,<br/>circuit breaker in front of origin"]
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class R1,R2,R3,Origin store
+    class Origin db
+    class R1,R2,R3 cache
     class Ring,HotKey hot
 ```
 

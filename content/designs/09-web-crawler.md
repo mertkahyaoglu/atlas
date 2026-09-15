@@ -143,9 +143,11 @@ flowchart TB
     Bloom -- "probably seen · skip" --> Drop([discard])
     Bloom -- "definitely not seen<br/>→ back into the frontier" --> Front
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Robots,DNS,PageStore store
+    class Robots,DNS cache
+    class PageStore blob
     class Bloom,Back hot
 
     click Back href "/docs/05-async-messaging-and-event-driven" "Role: one queue per host, so no site is fetched faster than politeness allows.<br/>Trade-off: slow hosts cap throughput, and the number of queues grows with hosts."

@@ -164,9 +164,13 @@ flowchart TB
     end
     GWout --> LocalB
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Ops,Blob,Presence,PendA,PendB store
+    class Ops,PendA,PendB db
+    class Presence cache
+    class Blob blob
     class Transform,Seq hot
 
     click GWout href "/docs/07-apis-and-communication" "Role: holds collaborators' connections and routes each doc to the server that owns it.<br/>Trade-off: stateful, so moving a document forces its editors to reconnect."

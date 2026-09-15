@@ -133,10 +133,16 @@ flowchart TB
     Inbox --> Push["APNs / FCM<br/>mobile push"]
     Inbox -. "on reconnect: drain backlog,<br/>client acks, rows deleted" .-> GWB
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Durable,Registry,Inbox store
+    class Durable,Inbox db
+    class Registry cache
     class Online hot
+    class PubSub queue
+    class Push external
 
     click GWA href "/docs/07-apis-and-communication" "Role: keeps sender A's persistent connection and forwards messages inward.<br/>Trade-off: a stateful node, and a crash drops thousands of sockets that all reconnect."
     click GWB href "/docs/07-apis-and-communication" "Role: pushes messages to B over the socket it holds.<br/>Trade-off: sticky state, so rebalancing gateways causes reconnect storms."

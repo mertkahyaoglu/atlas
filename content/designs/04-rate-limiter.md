@@ -157,10 +157,18 @@ flowchart TB
     Verdict -- "deny" --> Reject["429 Too Many Requests<br/>Retry-After · X-RateLimit-*"]
     Redis -. "unreachable → FAIL OPEN<br/>on local bucket only,<br/>log and alert" .-> Backend
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
+    classDef lb fill:#5d3759,stroke:#e066b2,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Redis,Config store
+    class Config db
+    class Redis cache
     class Verdict hot
+    class Scrub external
+    class G1,G2,G3 gateway
+    class LB lb
 
     click Scrub href "/docs/04-caching" "Role: drops volumetric attacks before they reach your infrastructure.<br/>Trade-off: coarse filtering only, so per-user limits still happen further in."
     click Redis href "/docs/04-caching" "Role: the shared counter every gateway checks, atomically through one Lua script.<br/>Trade-off: a network hop on every request, and if it fails you must pick fail-open or fail-closed."

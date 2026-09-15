@@ -89,6 +89,35 @@ click Node href "/docs/05-async-messaging-and-event-driven" "Role: …<br/>Trade
 If a chart fails to parse, the `Mermaid` component catches it and falls back to showing
 the source rather than blanking the page.
 
+Node colour is by type, not per diagram, so the same colour means the same thing on
+every page:
+
+```text
+classDef db       fill:#34526e,stroke:#6cb2ee,color:#d7dee8   /* durable stores: Postgres, Cassandra tables */
+classDef cache    fill:#623e43,stroke:#f07a73,color:#d7dee8   /* Redis, or anything explicitly TTL'd */
+classDef blob     fill:#5f5830,stroke:#e6c43c,color:#d7dee8   /* object storage: S3-style blobs */
+classDef queue    fill:#4b4771,stroke:#ad94f7,color:#d7dee8   /* message buses, topics, pub/sub */
+classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8   /* third-party systems: APNs, SMTP, a PSP, a CDN */
+classDef gateway  fill:#22565e,stroke:#38bdc1,color:#d7dee8   /* the edge reverse-proxy tier: an API gateway */
+classDef lb       fill:#5d3759,stroke:#e066b2,color:#d7dee8   /* a load balancer */
+classDef hot      stroke:#e8a33d,stroke-width:2px             /* the node the deep dive is actually about */
+```
+
+Only add a `classDef` a diagram uses — most designs don't need all seven. `hot` is an
+emphasis layered on top of a type (`class Node1 db` and `class Node1 hot` both apply),
+not a type of its own. A stateful, per-connection **WS gateway** (the socket-holding
+tier in the chat-style designs) is deliberately left uncoloured — it's a different thing
+from an API gateway's reverse-proxy role, and colouring both the same would blur that
+distinction rather than sharpen it. Everything else stays the unclassed default box, so
+the coloured nodes read as "this holds state," "this is async," "this isn't ours," and
+"this is the edge tier" at a glance, rather than fighting for attention with the
+majority of plain service nodes.
+
+These are flat hex, not `var(--token)` or `rgba(...)` — Mermaid's `classDef` grammar
+parses the style string itself and rejects any value with parentheses in it, so both
+fail to parse. That also means these colours don't adapt to the light theme; they're
+picked to still read fine there since dark is this app's default.
+
 ## Design notes
 
 Two accent colours carry information rather than decoration: teal marks concept

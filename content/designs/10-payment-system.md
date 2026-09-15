@@ -141,10 +141,16 @@ flowchart TB
     Hook --> DB
     DB --> Recon["Daily reconciliation<br/>PSP settlement file ⟷ our ledger<br/>discrepancies → exceptions queue<br/>this is NOT optional"]
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class DB,PSP store
+    class DB db
     class Idem hot
+    class Events queue
+    class PSP external
+    class GW gateway
 
     click DB href "/docs/02-data-storage" "Role: writes the payment and its ledger entries in one ACID transaction, replicated synchronously.<br/>Trade-off: picks consistency over availability, so writes stop rather than risk money."
     click Events href "/docs/05-async-messaging-and-event-driven" "Role: publishes payment events for fulfilment and receipts, fed by the outbox.<br/>Trade-off: at-least-once delivery, so every consumer must dedupe."
