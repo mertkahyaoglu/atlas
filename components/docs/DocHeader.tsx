@@ -1,14 +1,24 @@
 import { Clock } from "lucide-react";
-import type { DocMeta } from "@/lib/types";
+import type { DocMeta, InterviewScript } from "@/lib/types";
 import { GroupBadge } from "@/components/ui/GroupBadge";
 import { CompleteButton } from "./CompleteButton";
 import { DocTags } from "./DocTags";
+import { ScriptButton } from "./script/ScriptButton";
 
 /**
  * `showHardPart` is off when the page renders the design panels, which show
- * the fuller version of the same text.
+ * the fuller version of the same text. `script` is present only for designs
+ * that have one written.
  */
-export function DocHeader({ doc, showHardPart = true }: { doc: DocMeta; showHardPart?: boolean }) {
+export function DocHeader({
+  doc,
+  showHardPart = true,
+  script,
+}: {
+  doc: DocMeta;
+  showHardPart?: boolean;
+  script?: InterviewScript;
+}) {
   return (
     <header className="mb-14">
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -18,7 +28,8 @@ export function DocHeader({ doc, showHardPart = true }: { doc: DocMeta; showHard
           {doc.readingMinutes} min
         </span>
         {doc.tags.length > 0 && <DocTags tags={doc.tags} />}
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-2">
+          {script && <ScriptButton title={doc.title} script={script} />}
           <CompleteButton slug={doc.slug} />
         </span>
       </div>

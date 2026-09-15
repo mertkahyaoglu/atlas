@@ -1,7 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import type { DesignDetails, DesignFollowUp, DesignTradeoff, Doc, DocGroup, DocMeta, TocEntry } from "./types";
+import { parseScript } from "./script";
+import type {
+  DesignDetails,
+  DesignFollowUp,
+  DesignTradeoff,
+  Doc,
+  DocGroup,
+  DocMeta,
+  InterviewScript,
+  TocEntry,
+} from "./types";
 
 const CONTENT_ROOT = path.join(process.cwd(), "content");
 const GROUP_DIR: Record<DocGroup, string> = {
@@ -140,6 +150,22 @@ export function getDocsByGroup(group: DocGroup): Doc[] {
 
 export function getDoc(slug: string): Doc | undefined {
   return getAllDocs().find((doc) => doc.slug === slug);
+}
+
+/**
+ * The worked interview script for a design, if one has been written. Scripts
+ * are optional: a design without `content/scripts/<slug>.md` simply doesn't
+ * offer the button.
+ */
+export function getScript(slug: string): InterviewScript | undefined {
+  const file = path.join(CONTENT_ROOT, "scripts", `${slug}.md`);
+  if (!fs.existsSync(file)) return undefined;
+  const script = parseScript(fs.readFileSync(file, "utf8"));
+  if (script.phases.length === 0) {
+    console.warn(`[content] ${slug}: script file has no phases`);
+    return undefined;
+  }
+  return script;
 }
 
 /** Strip content so client components receive only what they render. */

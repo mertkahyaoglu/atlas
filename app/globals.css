@@ -622,3 +622,101 @@
   border: 1px solid var(--tone-amber);
   color: var(--tone-amber);
 }
+
+/* ---------------------------------------------------------------------------
+   Interview script dialog. Wider than the node dialog because it is a long
+   read, and the three voices are separated by weight rather than by colour:
+   the candidate speaks in the page's own voice, the interviewer sits in a
+   raised block, and coaching notes take the accent.
+--------------------------------------------------------------------------- */
+
+.script-dialog {
+  width: min(58rem, calc(100vw - 2rem));
+  max-height: min(48rem, calc(100vh - 3rem));
+}
+
+.script-body {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+
+.script-phase {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.script-phase__number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  color: var(--accent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+}
+.script-phase__time {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.script-turn__speaker {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The interviewer interrupts, so their turns read as an inset block. */
+.script-turn--interviewer {
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--raised);
+}
+
+.script-note {
+  padding: 10px 14px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.script-note__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Turns are already narrow; the reading measure would double-indent them. */
+.script-body .doc p,
+.script-body .doc ul,
+.script-body .doc ol {
+  max-width: none;
+}
+
+/* A wide child would make the whole transcript scroll sideways, so tables get
+   their own scroller and long paths in code break rather than push. */
+.script-body .doc table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.script-body .doc :not(pre) > code {
+  overflow-wrap: anywhere;
+}
