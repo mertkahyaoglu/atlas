@@ -237,6 +237,16 @@ flowchart TB
 
 </details>
 
+The feed is a write path and a read path behind one API Gateway. They never call each other: the write path fills two stores, and the read path merges them.
+
+1. The client's `POST /posts` passes the API Gateway, which handles auth and rate limiting, and reaches the Post Service.
+2. The Post Service writes the post to the posts store in Cassandra and publishes `post.created` to Kafka, then returns without waiting for fan-out.
+3. The Fan-out service, running as a consumer group, reads the event and checks whether the author has more than 100k followers.
+4. For an ordinary author, it fans out to followers with batched, idempotent writes, adding one reference row per follower to `user_timeline`, keyed by `user_id` and sorted by `post_id` descending.
+5. For a celebrity, it skips eager fan-out. The post lands in the Redis celebrity cache instead, where one list serves every follower at read time.
+
+Reads never wait on fan-out. A `GET /timeline` reaches the Timeline Service, which touches only what the write path left behind, `user_timeline` rows and the celebrity cache, and keeps each merged page in the Redis assembled timeline for 30 seconds. Images and video bypass both paths: the response carries media URLs, and the client loads the bytes from Blob storage + CDN.
+
 **Read path in words:** Timeline Service checks Redis for an assembled timeline. On miss, it reads the user's precomputed `user_timeline` rows (cheap, single partition), separately fetches recent posts from the handful of celebrities that user follows (cached, so near-free), merges the two lists by post_id descending, hydrates post bodies, and caches the result for 30 seconds.
 
 ---

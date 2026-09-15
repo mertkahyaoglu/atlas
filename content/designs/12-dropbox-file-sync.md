@@ -256,4 +256,14 @@ flowchart TB
 
 </details>
 
+Sync is split three ways: the client turns file changes into hashed chunks, the Metadata Service decides which chunks are missing and records versions, and object storage holds the bytes. Other devices find out about changes through the user's journal and a notification poke.
+
+1. The filesystem watcher sees a change. The content-defined chunker splits the file into chunks of about 4 MB, the client hashes each one with SHA-256 and updates its local index, and then it sends the hashes with `POST /prepare`. The Metadata Service checks auth, quota and the path, and returns only the hashes it doesn't already have.
+2. For those missing chunks it hands out presigned URLs, and the client uploads the bytes straight to object storage, where each chunk is stored under its `chunk_hash`.
+3. The client commits the ordered chunk list. The Metadata Service writes the new version to the Metadata DB, on the user's shard, and appends an entry with the next `seq` to the user's journal.
+4. The journal entry triggers the notification service, which pokes the user's other devices over long-poll or WebSocket without sending any payload.
+5. Each device calls `GET /delta?cursor=last_seq`, compares the changes with its local index, downloads only the chunks it lacks, reassembles the file and advances its cursor.
+
+The conflict branch applies to a device that edited the same file while offline. Its commit carries the base version it started from. If that is still the current version, the change is applied. If not, both files are kept: `report.docx` and `report (conflicted copy).docx`. In the background, object storage keeps a refcount on every chunk and deletes unreferenced chunks lazily.
+
 ---

@@ -211,4 +211,14 @@ flowchart TB
 
 </details>
 
+The design puts a stateless Chat Service between two stateful gateways: one holds the sender's socket and one holds the recipient's. A Redis connection registry links them, and every message is stored before anyone is told about it.
+
+1. Client A sends the message over WSS to WS Gateway #17, which holds A's socket and forwards it to the Chat Service. The Chat Service validates and authorizes it, assigns a Snowflake `message_id`, dedupes on `client_msg_id`, and writes it to the messages store, where it lands in the `conversation_id` partition.
+2. Only after that write succeeds does the Chat Service ack the sender.
+3. It then resolves the recipient in the connection registry, which maps `user_id` to the gateway node holding that user's socket and expires stale entries through TTL and heartbeats.
+4. If the recipient is online, the Chat Service publishes to that node's pub/sub channel, `gw:42`, so only WS Gateway #42 receives the message.
+5. WS Gateway #42 pushes it to Client B over B's socket.
+
+When the recipient is offline, the message is written to `inbox_queue` as an undelivered row instead, and APNs / FCM sends a mobile push. When B reconnects, the gateway drains that backlog to the client, B acks, and the rows are deleted.
+
 ---

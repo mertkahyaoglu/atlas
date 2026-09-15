@@ -271,4 +271,14 @@ flowchart TB
 
 </details>
 
+Each client edits its own copy immediately and syncs through the one Document Session Server that owns the document. WS Gateways carry ops in and out, and the operations log is the durable record everything else is rebuilt from.
+
+1. Client A applies the keystroke locally at once and keeps the op, with its `base_version`, in its pending buffer. The op travels over the WebSocket to the WS Gateway, which routes it by `doc_id` to the Document Session Server that owns the document, and the sequencer there assigns it the next monotonic version.
+2. If the op was based on an older version, the transform step adjusts it against the ops applied since, shifting its positions so it still lands where the user meant.
+3. The session server persists the op to the append-only operations log, keyed by `doc_id` and `version`.
+4. It broadcasts the transformed op through the WS Gateway, whose connection registry maps `doc_id` to connected clients, and acks Client A, which drops the op from its pending buffer.
+5. Client B transforms the incoming op against its own pending buffer and applies it locally.
+
+Two background flows keep the log usable. Every N ops, a snapshot job writes the folded document to object storage, so a load reads the latest snapshot plus the ops after it. If the owner dies, a new owner is elected, rebuilds from snapshot and ops, and clients resend their unacked ops. Presence takes its own path: cursors and selections live in Redis with a TTL and reach collaborators through the gateway, never through the operations log.
+
 ---

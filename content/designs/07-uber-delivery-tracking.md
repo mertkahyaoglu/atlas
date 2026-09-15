@@ -251,4 +251,15 @@ flowchart TB
 
 </details>
 
+Two workloads meet in this design: a constant stream of driver positions through the Location Gateway, and rider requests that go through matching and become trips. The Redis geo index is where they connect.
+
+1. A rider's `POST /rides` creates a trip in the Ride Service with state `REQUESTED` and hands it to the Matching Service, which runs GEOSEARCH on the Redis geo index within 3 km, covering the target cell and its 8 neighbours.
+2. It filters candidates by availability, vehicle type, rating and heartbeat.
+3. It ranks the rest by routed ETA from the Routing / ETA Service rather than by straight-line distance.
+4. It acquires a per-driver lock with `SET NX PX` and a 30-second expiry, plus a fencing token, so the driver can't be assigned twice.
+5. It offers the trip and waits 15 seconds. A reject or timeout moves it to the next candidate.
+6. Once a driver accepts, the Trip Service runs the state machine from `MATCHED` through `ARRIVING` and `IN_PROGRESS` to `COMPLETED`, records each change in `trips` and `trip_events`, and starts the saga on completion: charge, pay the driver, send the receipt.
+
+The geo index is fed by the location paths. Every 4 seconds a driver's position reaches the Location Gateway, which overwrites that driver's entry synchronously, with a 30-second TTL that doubles as liveness, and sends the ping asynchronously to Kafka `location.stream`. Flink / Spark streaming turns that stream into ETA models and analytics and writes history to `location_hist` in S3. For drivers on an active trip only, the gateway also publishes to `trip:{id}`, throttled to one update every 2 seconds, which the rider's live map subscribes to.
+
 ---

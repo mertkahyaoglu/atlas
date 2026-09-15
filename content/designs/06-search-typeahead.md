@@ -259,4 +259,15 @@ flowchart TB
 
 </details>
 
+The design has an indexing path that keeps the inverted index a few seconds behind the source of truth, and a query path with two services: the Search Service for submitted queries and the Suggest Service for keystrokes. Only search touches the index shards.
+
+1. When the user submits a query, the Search Service checks the Redis query cache under a normalized key, and 60-80% of queries are answered there.
+2. On a miss, the Query parser runs the same analysis chain used at index time, plus spell correction.
+3. The parser scatters the query to every shard. The index is document-partitioned, so each shard holds a complete index for its share of documents.
+4. Each shard scores its matches with BM25 and returns its top 20.
+5. The gather step merges and re-ranks those lists into the global top 20, using hedged requests and a timeout so one slow shard can only cost partial results.
+6. Hydrate adds titles, snippets and facets, caches the result, and returns it to the user.
+
+Typeahead runs beside this. Every keystroke, debounced by 50ms, goes to the Suggest Service, which walks an in-memory trie of top-K completions per prefix in about 5ms; the trie is rebuilt offline from query logs. Documents reach the shards through the indexing path: changes in the source of truth flow through CDC into Kafka `document.changed`, the analysis pipeline tokenizes, lowercases, drops stopwords, stems and enriches them, and each document goes to the shard chosen by `hash(doc_id)`.
+
 ---

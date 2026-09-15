@@ -252,4 +252,14 @@ flowchart TB
 
 </details>
 
+Every payment is committed to the Primary DB before anything talks to the processor. From there, an outbox feeds Kafka, a PSP worker calls the PSP, and webhooks carry the result back into the same database.
+
+1. Checkout sends `POST /payments` with an `Idempotency-Key` through the API Gateway, and the Payment Service claims the key with an INSERT on `(merchant, key)`. If the key has been seen and the payment completed, the service returns the stored response and does nothing else.
+2. For a new key, one ACID transaction inserts the payment as `PENDING`, its balanced ledger entries and an outbox row, and commits them to the Primary DB together.
+3. The outbox publisher polls for unpublished rows and publishes them to Kafka `payment.events`.
+4. The PSP worker consumes the event and calls the PSP to authorize or capture, with timeouts, backoff with jitter and a circuit breaker per PSP. It sends our idempotency key along, and after a timeout it queries the PSP for that key instead of guessing.
+5. The PSP reports the outcome to the webhook receiver, which verifies the HMAC signature and dedupes on `psp_event_id` before updating the Primary DB.
+
+Card details never enter this flow. Checkout sends them straight to the PSP, and the payment request carries only `payment_method_token`. Other consumers of `payment.events` handle fulfilment, receipts and the warehouse, independently of the PSP worker. Once a day, reconciliation compares the PSP settlement file with the ledger and sends any discrepancy to an exceptions queue.
+
 ---
