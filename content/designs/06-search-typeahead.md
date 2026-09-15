@@ -156,10 +156,12 @@ flowchart TB
     Gather --> Hydrate["Hydrate titles, snippets, facets<br/>cache the result"]
     Hydrate --> Results([Results to user])
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Truth,S0,S1,S2,Trie,QCache store
     class Gather hot
+    class CDC queue
 
     click Truth href "/docs/02-data-storage" "Role: the authoritative data that the search index is derived from.<br/>Trade-off: the index can always be rebuilt, but is never guaranteed current."
     click CDC href "/docs/05-async-messaging-and-event-driven" "Role: streams database changes to indexing without dual writes.<br/>Trade-off: seconds of indexing lag, so results can miss the latest edits."

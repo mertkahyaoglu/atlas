@@ -134,8 +134,10 @@ flowchart TB
     Flink --> Agg[("clicks_agg<br/>fast stats")]
     Flink --> Warehouse[("Data warehouse<br/>raw analytics")]
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     class Store,Cache,Replica,Agg,Warehouse store
+    class Clicks queue
 
     click Cache href "/docs/04-caching" "Role: answers most redirects from memory, keeping p99 latency low.<br/>Trade-off: deleted or expired links can keep redirecting until the TTL runs out."
     click Clicks href "/docs/05-async-messaging-and-event-driven" "Role: records clicks asynchronously so the redirect never waits on analytics.<br/>Trade-off: stats lag behind, and duplicate events must be tolerated."

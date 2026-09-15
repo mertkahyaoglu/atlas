@@ -169,10 +169,12 @@ flowchart TB
 
     Water -. "checkpoints → exactly-once state;<br/>external writes still need<br/>idempotent upserts" .-> OLAP
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Archive,OLAP store
     class Window,Water hot
+    class Bus queue
 
     click Bus href "/docs/05-async-messaging-and-event-driven" "Role: the durable buffer for every ad event, partitioned by ad_id.<br/>Trade-off: 7-day retention limits how far back a replay can go."
     click Flink href "/docs/09-specialized-building-blocks" "Role: dedupes and aggregates events into minute windows in real time.<br/>Trade-off: late events need watermarks, and stateful jobs are harder to operate."

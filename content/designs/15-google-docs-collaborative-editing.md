@@ -164,7 +164,7 @@ flowchart TB
     end
     GWout --> LocalB
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Ops,Blob,Presence,PendA,PendB store
     class Transform,Seq hot

@@ -89,6 +89,27 @@ click Node href "/docs/05-async-messaging-and-event-driven" "Role: …<br/>Trade
 If a chart fails to parse, the `Mermaid` component catches it and falls back to showing
 the source rather than blanking the page.
 
+Node colour is by type, not per diagram, so the same colour means the same thing on
+every page:
+
+```text
+classDef store    fill:#34526e,stroke:#6cb2ee,color:#d7dee8   /* databases, caches, blob storage */
+classDef queue    fill:#4b4771,stroke:#ad94f7,color:#d7dee8   /* message buses, topics, pub/sub */
+classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8   /* third-party systems: APNs, SMTP, a PSP, a CDN */
+classDef hot      stroke:#e8a33d,stroke-width:2px             /* the node the deep dive is actually about */
+```
+
+Only add a `classDef` a diagram uses — most designs don't have an `external` node. `hot`
+is an emphasis layered on top of a type (`class Node1 store` and `class Node1 hot` both
+apply), not a fourth type of its own. Everything else stays the unclassed default box,
+so the three colours read as "this is stateful," "this is async," and "this isn't ours"
+at a glance rather than fighting for attention with the majority of plain service nodes.
+
+These are flat hex, not `var(--token)` or `rgba(...)` — Mermaid's `classDef` grammar
+parses the style string itself and rejects any value with parentheses in it, so both
+fail to parse. That also means these colours don't adapt to the light theme; they're
+picked to still read fine there since dark is this app's default.
+
 ## Design notes
 
 Two accent colours carry information rather than decoration: teal marks concept

@@ -143,7 +143,7 @@ flowchart TB
     Conflict -- "base = current" --> Applied([applied])
     Conflict -- "base ≠ current" --> Keep["KEEP BOTH<br/>report.docx and<br/>'report (conflicted copy).docx'<br/>never silently discard work"]
 
-    classDef store fill:#1d2734,stroke:#35455a,color:#d7dee8
+    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Blob,MetaDB,LocalIdx store
     class Chunker,Conflict hot
