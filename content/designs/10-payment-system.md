@@ -114,6 +114,8 @@ Two details worth stating unprompted: **amounts are integers in minor units** (c
 
 ## High-level architecture
 
+<!-- tab: Today · 10k tx/s -->
+
 ```mermaid
 flowchart TB
     Checkout([Checkout]) -- "POST /payments<br/>Idempotency-Key" --> GW[API Gateway]
@@ -156,108 +158,6 @@ flowchart TB
     click Events href "/docs/05-async-messaging-and-event-driven" "Role: publishes payment events for fulfilment and receipts, fed by the outbox.<br/>Trade-off: at-least-once delivery, so every consumer must dedupe."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  [Client / Checkout]
-          │  card details go DIRECTLY to PSP's hosted field / SDK
-          │  ────────────────────────────────────────────────────┐
-          │  (your servers NEVER see a PAN — PCI scope reduction) │
-          ▼                                                        ▼
-  ┌───────────────────┐                                  ┌──────────────────┐
-  │   API GATEWAY      │                                  │  PSP (Stripe /   │
-  │   authn, rate limit│                                  │  Adyen / bank)   │
-  └─────────┬─────────┘                                  └────────┬─────────┘
-             │ POST /payments + Idempotency-Key                    ▲
-             ▼                                                      │
-  ┌──────────────────────────────────────────────────┐             │
-  │            PAYMENT SERVICE                        │             │
-  │                                                    │             │
-  │  ┌──────────────────────────────────────────┐    │             │
-  │  │ 1. IDEMPOTENCY CHECK                      │    │             │
-  │  │    SELECT ... WHERE (merchant, key)       │    │             │
-  │  │     ├─ FOUND + completed → return stored  │    │             │
-  │  │     │   response. DO NOT re-execute.      │    │             │
-  │  │     ├─ FOUND + in-flight  → 409 / wait    │    │             │
-  │  │     └─ NOT FOUND → INSERT (claim it), go  │    │             │
-  │  │    ⚠ the INSERT is the lock. Unique       │    │             │
-  │  │      constraint = concurrency safety.     │    │             │
-  │  └──────────────────────────────────────────┘    │             │
-  │                     ▼                              │             │
-  │  ┌──────────────────────────────────────────┐    │             │
-  │  │ 2. SINGLE ACID TRANSACTION                │    │             │
-  │  │    · INSERT payment (state=PENDING)       │    │             │
-  │  │    · INSERT ledger entries (balanced)     │    │             │
-  │  │    · INSERT outbox row                    │    │             │
-  │  │    COMMIT  ← all or nothing                │    │             │
-  │  └──────────────────────────────────────────┘    │             │
-  └───────────────────────┬──────────────────────────┘             │
-                           │                                        │
-         ┌─────────────────┴──────────────────┐                    │
-         ▼                                     ▼                    │
-  ┌──────────────┐                  ┌───────────────────────┐      │
-  │  PRIMARY DB   │                  │  OUTBOX PUBLISHER      │      │
-  │  (Postgres,   │                  │  polls unpublished →   │      │
-  │   ACID, CP)   │                  │  Kafka → mark sent     │      │
-  │  synchronous  │                  │  ← solves the DUAL     │      │
-  │  replication  │                  │    WRITE problem       │      │
-  └──────────────┘                  └───────────┬───────────┘      │
-                                                  ▼                  │
-                                    ┌──────────────────────────┐    │
-                                    │  Kafka: payment.events    │    │
-                                    └────┬──────────┬──────────┘    │
-                                          │          │                │
-                     ┌────────────────────┘          └────────────┐  │
-                     ▼                                             ▼  │
-        ┌──────────────────────────┐              ┌──────────────────┴──┐
-        │  PSP WORKER               │              │ downstream consumers │
-        │  (authorize / capture)    │──────────────│ · order fulfilment   │
-        │                            │  call PSP    │ · receipts/email     │
-        │  · timeout + retry w/      │◄─────────────│ · analytics/warehouse│
-        │    exponential backoff     │  async ack   └─────────────────────┘
-        │    + JITTER                │
-        │  · circuit breaker per PSP │
-        │  · pass OUR idempotency    │
-        │    key to the PSP too      │
-        └────────────┬───────────────┘
-                      │
-                      │  ⚠ TIMEOUT = UNKNOWN STATE, not failure.
-                      │    Never assume "no response" = "didn't charge".
-                      │    Resolve by querying PSP for the key.
-                      ▼
-        ┌──────────────────────────────────────┐
-        │  PSP WEBHOOK RECEIVER                 │
-        │  · verify HMAC signature              │
-        │  · dedupe on psp_event_id             │
-        │  · out-of-order tolerant (state       │
-        │    machine ignores backward moves)    │
-        │  · advance payment state, write ledger│
-        └────────────┬─────────────────────────┘
-                      ▼
-        ┌──────────────────────────────────────┐
-        │  RECONCILIATION (daily batch)         │
-        │  PSP settlement file  ⟷  our ledger   │
-        │  → discrepancies to an exceptions     │
-        │    queue for human review             │
-        │  ⚠ This is not optional. Distributed  │
-        │    systems drift; reconciliation is   │
-        │    how you find out.                  │
-        └──────────────────────────────────────┘
-
-  ═══ SAGA: multi-step order with compensation ═══
-
-   Reserve inventory ──ok──► Charge payment ──ok──► Ship
-          │                        │                  │
-          │                        │           FAIL ──┘
-          │                   compensate: REFUND
-          └── compensate: RELEASE inventory
-
-   Each step idempotent and retryable. No 2PC across services.
-```
-
-</details>
-
 Every payment is committed to the Primary DB before anything talks to the processor. From there, an outbox feeds Kafka, a PSP worker calls the PSP, and webhooks carry the result back into the same database.
 
 1. Checkout sends `POST /payments` with an `Idempotency-Key` through the API Gateway, and the Payment Service claims the key with an INSERT on `(merchant, key)`. If the key has been seen and the payment completed, the service returns the stored response and does nothing else.
@@ -267,5 +167,80 @@ Every payment is committed to the Primary DB before anything talks to the proces
 5. The PSP reports the outcome to the webhook receiver, which verifies the HMAC signature and dedupes on `psp_event_id` before updating the Primary DB.
 
 Card details never enter this flow. Checkout sends them straight to the PSP, and the payment request carries only `payment_method_token`. Other consumers of `payment.events` handle fulfilment, receipts and the warehouse, independently of the PSP worker. Once a day, reconciliation compares the PSP settlement file with the ledger and sends any discrepancy to an exceptions queue.
+
+<!-- tab: At 10x · 100k tx/s -->
+
+```mermaid
+flowchart TB
+    Checkout([Checkout]) -- "POST /payments<br/>Idempotency-Key" --> GW[API Gateway]
+    Checkout -. "card details go DIRECTLY to PSPs<br/>your servers NEVER see a PAN" .-> PSPs
+    GW --> Route["Shard router<br/>merchant_id → shard"]
+    Route -. "the largest merchants" .-> Big[("Dedicated shards<br/>one giant merchant each")]
+
+    subgraph SHARD ["Merchant shard · Postgres primary + sync standby · ~32 of them"]
+        direction TB
+        Idem{"1 · claim merchant + key<br/>unique constraint IS the lock"}
+        Txn["2 · ONE LOCAL ACID TRANSACTION<br/>payment + balanced ledger entries + outbox<br/>fees and clearing use this shard's<br/>SUB-ACCOUNTS, so nothing spans shards"]
+        Idem -- "new · claimed" --> Txn
+    end
+    Route --> Idem
+
+    Txn -- "logical decoding" --> CDC{{"Kafka · payment.events<br/>CDC from every shard"}}
+    CDC --> PSPRouter["PSP router<br/>by card network, region,<br/>cost and live success rate<br/>retries go to the SAME PSP"]
+    PSPRouter --> PSPs[("PSPs · several providers<br/>circuit breaker each")]
+    PSPs --> Hook["Webhook receivers<br/>verify HMAC · dedupe · state machine"]
+    Hook --> Route
+    CDC --> Recon["Streaming reconciliation<br/>match PSP events as they arrive<br/>daily settlement file only confirms"]
+    Recon --> Exceptions["Exceptions queue<br/>human review"]
+    Txn -. "entries older than ~90 days" .-> Archive[("Ledger archive<br/>write-once columnar<br/>hash-chained batches")]
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Big,Archive db
+    class CDC queue
+    class PSPs external
+    class GW gateway
+    class Txn hot
+    class Route,Big,Txn,CDC,PSPRouter,PSPs,Recon,Archive scaled
+
+    click Route href "/docs/02-data-storage" "Role: sends each payment to its merchant's shard, and giant merchants to dedicated ones.<br/>Trade-off: a directory that must stay available, so it's cached wherever it's read."
+    click Idem href "/docs/03-consistency-and-distributed-systems" "Role: claims the idempotency key with a unique insert on the merchant's shard.<br/>Trade-off: nothing new: the key already includes merchant_id, so it shards cleanly."
+    click Txn href "/docs/02-data-storage" "Role: payment, balanced entries and outbox row in one local transaction.<br/>Trade-off: platform accounts have to exist as sub-accounts on every shard."
+    click Big href "/docs/02-data-storage" "Role: dedicated shards for merchants too large to share one.<br/>Trade-off: capacity planning per giant merchant, especially before sale days."
+    click CDC href "/docs/05-async-messaging-and-event-driven" "Role: streams each shard's outbox into Kafka without polling queries.<br/>Trade-off: replication slots to monitor, or a stalled consumer fills the primary's disk."
+    click PSPRouter href "/docs/08-reliability-and-operations" "Role: picks a processor per transaction by network, region, cost and live success rate.<br/>Trade-off: reconciliation and dispute handling now span several providers."
+    click Recon href "/docs/08-reliability-and-operations" "Role: matches processor events against the ledger continuously.<br/>Trade-off: a second pipeline to keep correct, on top of the daily file check."
+    click Archive href "/docs/09-specialized-building-blocks" "Role: ledger entries older than ~90 days in write-once columnar storage, hash-chained.<br/>Trade-off: old history is slower to query than rows in Postgres."
+```
+
+Same system at 10x. 100k transactions/sec is around the peak the largest wallets report on their biggest shopping day; 100x would be beyond any payment platform's recorded peak, so 10x is the ceiling worth designing for. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Transactions at peak | 10k/sec | 100k/sec |
+| Ledger writes at peak | 20k/sec | 200k/sec |
+| Ledger entries per day | ~600M | ~6B |
+| Databases | 1 primary + standby | ~32 merchant shards, each primary + standby |
+| Payment processors | 1–2 | several, chosen per transaction |
+
+**What changes, and the number that forces it**
+
+1. **One primary → shards keyed by merchant.** 200k ledger writes/sec with synchronous replication is past a single Postgres primary. Shard by `merchant_id`, the follow-up's answer, with each shard a primary plus synchronous standby. The idempotency key is already `(merchant_id, key)`, so the claim lands on the same shard as the payment it protects.
+2. **Platform accounts are split across shards.** This is the trap in sharding a ledger: every payment also moves money into platform accounts (fees, PSP clearing), which would make every transaction cross-shard. Instead, each shard holds its own sub-accounts for fees and clearing, so the payment, both sides of every entry and the outbox row commit in one local ACID transaction. The platform's balance is the sum of its sub-accounts. Moving money between sub-accounts on different shards is rare and scheduled, and runs as a saga with balanced entries on each side.
+3. **Giant merchants get their own shards.** On a big sale day, one marketplace can exceed a whole shard's capacity. The router pins the largest merchants to dedicated shards.
+4. **Outbox polling → CDC.** Polling for unpublished rows on ~32 shards at this rate is constant load on the primaries. Logical decoding streams each shard's outbox into Kafka with no polling queries at all.
+5. **Several processors, routed per transaction.** 100k transactions/sec is too much revenue to hang on one processor's rate limits, pricing and outages. A PSP router chooses a provider for each transaction by card network, region, cost and live authorization success rate, with a circuit breaker per provider. Our idempotency key still travels to whichever PSP is chosen, and a retry after a timeout goes back to the *same* PSP and queries it first: failing over mid-payment to a different processor is exactly how double charges happen.
+6. **Reconciliation becomes streaming.** A daily line-by-line comparison over ~6B entries finds problems a day late. Processor events are matched against the ledger as they arrive, and the daily settlement file now confirms what's already been matched rather than discovering discrepancies.
+7. **Old ledger entries leave Postgres.** Seven years of ~6B entries a day doesn't belong on OLTP primaries. Entries older than ~90 days move to write-once columnar storage in hash-chained batches, so tampering is detectable, and balances are served from snapshots plus recent entries.
+
+**What stays the same**
+
+Consistency over availability. The idempotency claim is still a unique insert, a timeout is still an unknown state resolved by querying, every transaction still sums to zero, sagas still beat two-phase commit, webhooks are still verified and deduped, amounts are still integers in minor units, and card numbers still never touch our servers. Sharding is added exactly where the 10k/sec version said it would be, and not a transaction earlier.
+
+<!-- /tabs -->
 
 ---

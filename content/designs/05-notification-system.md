@@ -115,6 +115,8 @@ unread_counts || || Redis: unread:{user_id} → int || atomic INCR / DECR
 
 ## High-level architecture
 
+<!-- tab: Today · 50k events/s -->
+
 ```mermaid
 flowchart TB
     subgraph P ["Producers"]
@@ -191,87 +193,6 @@ flowchart TB
     click Counters href "/docs/04-caching" "Role: unread badge counts without scanning the inbox.<br/>Trade-off: counts can drift from the truth, hence periodic reconciliation."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
- ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
- │ PR Service │ │ CI Service │ │ Comments   │ │ Issues     │   PRODUCERS
- └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └─────┬──────┘
-       └──────────────┴───────┬───────┴──────────────┘
-                              ▼
-        ┌────────────────────────────────────────────┐
-        │   KAFKA  topic: activity.events             │
-        │   partitioned by entity_id (ordering per    │
-        │   PR/issue); 7-day retention → REPLAYABLE   │
-        └───────────────────┬────────────────────────┘
-                            ▼
-   ┌────────────────────────────────────────────────────────┐
-   │              FAN-OUT SERVICE (consumer group)            │
-   │                                                          │
-   │  1. resolve audience ──► [Subscription Service]          │
-   │       watchers + @mentions + thread participants         │
-   │                                                          │
-   │  2. is repo a "celebrity" (>100k watchers)?              │
-   │       YES → skip eager fan-out, mark for read-time pull  │
-   │       NO  → continue                                     │
-   │                                                          │
-   │  3. filter: muted? preference off? actor == recipient?   │
-   │                                                          │
-   │  4. COLLAPSE: same type + same entity within window      │
-   │       → merge into one "N people did X"                  │
-   │                                                          │
-   │  5. batched idempotent write, PK=(user_id, event_id)     │
-   └───────┬──────────────────────────────────┬──────────────┘
-           │                                   │
-           ▼                                   ▼
-  ┌──────────────────────┐        ┌────────────────────────────┐
-  │  notifications store  │        │  KAFKA topic: delivery.jobs │
-  │  Cassandra            │        │  (one job per channel)      │
-  │  PK=user_id           │        └──────┬────────┬────────┬───┘
-  │  SK=notif_id DESC     │               │        │        │
-  └──────────┬───────────┘    ┌───────────┘        │        └───────────┐
-             │                 ▼                    ▼                    ▼
-             │        ┌────────────────┐  ┌────────────────┐  ┌────────────────┐
-             │        │ IN-APP WORKER  │  │  PUSH WORKER   │  │  EMAIL WORKER  │
-             │        │                │  │                │  │                │
-             │        │ check prefs at │  │ quiet hours?   │  │ digest mode?   │
-             │        │ DELIVERY time  │  │ device tokens  │  │  → buffer      │
-             │        └───────┬────────┘  └───────┬────────┘  └───────┬────────┘
-             │                │                    │                   │
-             │                ▼                    ▼                   ▼
-             │      ┌──────────────────┐  ┌────────────────┐  ┌────────────────┐
-             │      │ Redis pub/sub    │  │  APNs / FCM    │  │  SMTP provider │
-             │      │  → WS gateway    │  │  (3rd party,   │  │  (3rd party,   │
-             │      │  → live client   │  │   rate limited)│  │   rate limited)│
-             │      └──────────────────┘  └───────┬────────┘  └───────┬────────┘
-             │                                     │                   │
-             │            ┌────────────────────────┴───────────────────┘
-             │            ▼
-             │   ┌──────────────────────────────────────────┐
-             │   │  RETRY:  exponential backoff + JITTER      │
-             │   │   1s → 2s → 4s → 8s → 16s                  │
-             │   │   circuit breaker per provider (bulkhead)  │
-             │   └────────────────┬─────────────────────────┘
-             │                     │ exhausted
-             │                     ▼
-             │            ┌─────────────────────┐
-             │            │  DEAD LETTER QUEUE  │  ← ALERT on depth
-             │            │  payload + error +  │    replay after fix
-             │            │  attempt count      │
-             │            └─────────────────────┘
-             │
-             ▼
-     ┌────────────────────┐        ┌─────────────────────────┐
-     │ READ API           │◄───────│ Redis: unread counters   │
-     │ cursor-paginated   │        │ atomic INCR/DECR, drift  │
-     │ merge: own feed +  │        │ reconciled periodically  │
-     │ celebrity pull     │        └─────────────────────────┘
-     └────────────────────┘
-```
-
-</details>
-
 Events pass through two Kafka topics: `activity.events` feeds the Fan-out service, and `delivery.jobs` feeds delivery workers that are bulkheaded per provider. The notifications store and the Read API sit beside that pipeline as each user's inbox.
 
 1. The PR Service, CI Service, Comments and Issues publish to Kafka `activity.events`, partitioned by `entity_id`. The Fan-out service consumes it and resolves the audience: watchers, mentions and participants.
@@ -282,5 +203,99 @@ Events pass through two Kafka topics: `activity.events` feeds the Fan-out servic
 6. The In-app worker, Push worker and Email worker each take their own jobs. The in-app worker sends through Redis pub/sub to the WS gateway, the push worker checks quiet hours before calling APNs / FCM, and the email worker buffers digests before calling the SMTP provider.
 
 Failed provider calls go to the retry stage, which backs off exponentially with jitter behind a circuit breaker per provider. Jobs that run out of attempts land in the dead letter queue, which alerts on depth and is replayed after a fix. On the read side, the Read API pages through the notifications store by cursor, merges celebrity-repo events at read time, and takes badge counts from the Redis unread counters.
+
+<!-- tab: At 10x · 500k events/s -->
+
+```mermaid
+flowchart TB
+    Producers([PR · CI · Comments · Issues]) --> Router["Ingest router<br/>tags urgency at the source"]
+    Router -- "mentions, review requests" --> Direct{{"Kafka · events.direct<br/>small, latency-sensitive"}}
+    Router -- "watch activity" --> Bulk{{"Kafka · events.activity<br/>large, allowed to lag"}}
+
+    subgraph FO ["Fan-out · one worker pool per topic"]
+        direction TB
+        Audience["1 · resolve audience<br/>watchers + mentions + participants"]
+        Size{"2 · audience size?"}
+        Chunked["chunked tasks<br/>≤ 10k recipients each"]
+        Pull["store once<br/>merge at read time"]
+        Small["3 · filter prefs · collapse<br/>window stretches under backlog"]
+        Audience --> Size
+        Size -- "under 1k" --> Small
+        Size -- "1k to 20k" --> Chunked --> Small
+        Size -- "over 20k watchers" --> Pull
+    end
+    Direct --> Audience
+    Bulk --> Audience
+
+    Small --> Store[("notifications · Cassandra<br/>PK = user_id + month<br/>90-day TTL")]
+    Small --> Jobs{{"Kafka · delivery.jobs<br/>one job per channel"}}
+
+    subgraph D ["Delivery workers · bulkheaded per provider"]
+        direction LR
+        InApp["In-app worker"]
+        PushW["Push worker<br/>quiet hours · collapse keys"]
+        EmailW["Email worker<br/>digest by default for heavy users"]
+    end
+    Jobs --> InApp & PushW & EmailW
+
+    InApp --> Registry[("Connection registry<br/>user_id → gateway")]
+    Registry --> WS["WS gateway fleet"]
+    PushW --> APNs["APNs / FCM"]
+    EmailW --> MailRouter["Mail router<br/>several providers · warmed IP pools<br/>per-domain throttles"]
+    MailRouter --> SMTP["Email providers"]
+
+    Store --> ReadAPI["Read API<br/>cursor paginated"]
+    Pull -.-> ReadAPI
+    Counters[("Unread counters · Redis Cluster<br/>reconciled shard by shard")] --> ReadAPI
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Store db
+    class Registry,Counters cache
+    class Direct,Bulk,Jobs queue
+    class APNs,SMTP external
+    class Size hot
+    class Router,Direct,Bulk,Size,Chunked,Small,Store,Registry,MailRouter,Counters scaled
+
+    click Router href "/docs/05-async-messaging-and-event-driven" "Role: tags each event's urgency at the source and picks its topic.<br/>Trade-off: a mis-tagged event type waits in the slow lane."
+    click Direct href "/docs/05-async-messaging-and-event-driven" "Role: mentions and review requests, with their own fan-out pool.<br/>Trade-off: a second topic to size, monitor and replay."
+    click Bulk href "/docs/05-async-messaging-and-event-driven" "Role: watch activity, allowed to fall behind during storms.<br/>Trade-off: activity notifications can arrive minutes late at peak."
+    click Size href "/docs/06-fanout-and-feeds" "Role: routes each audience by size: straight through, chunked, or merged at read time.<br/>Trade-off: three code paths, and two thresholds to tune."
+    click Chunked href "/docs/06-fanout-and-feeds" "Role: splits mid-size audiences into tasks of at most 10k recipients.<br/>Trade-off: one event's notifications land over several seconds instead of at once."
+    click Small href "/docs/05-async-messaging-and-event-driven" "Role: applies preferences and collapses duplicates, with a longer window under backlog.<br/>Trade-off: during storms, low-priority notifications are both later and less specific."
+    click Store href "/docs/02-data-storage" "Role: each user's inbox, partitioned by user and month, expiring after 90 days.<br/>Trade-off: history older than 90 days is gone."
+    click Registry href "/docs/07-apis-and-communication" "Role: finds the gateway holding each user's open tabs.<br/>Trade-off: stale entries after a gateway crash; the stored inbox covers anything missed."
+    click MailRouter href "/docs/08-reliability-and-operations" "Role: spreads email across providers and IP pools with per-domain throttles.<br/>Trade-off: more providers means more bounce, complaint and reputation handling."
+    click Counters href "/docs/04-caching" "Role: unread badges on a sharded Redis Cluster, reconciled one shard at a time.<br/>Trade-off: counts still drift between reconciliations."
+```
+
+Same product at 10x the traffic. At 100x the peak would be 50M deliveries/sec, far beyond what email and push providers accept from anyone, so 10x is the tier where the design is still recognisably this one. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Events at peak | 50k/sec | 500k/sec |
+| Deliveries at peak | 500k/sec | 5M/sec |
+| Notification records | ~2 TB/day | ~20 TB/day |
+| Biggest repo | 500k watchers | 5M watchers |
+| Read-time merge threshold | 100k watchers | 20k watchers |
+
+**What changes, and the number that forces it**
+
+1. **One topic becomes two, split by urgency.** At 500k events/sec, a CI storm or a viral repo can put minutes of backlog on a single topic, and a direct @mention waits behind it. The ingest router tags each event at the source: mentions and review requests go to a small, latency-sensitive topic with its own fan-out pool, and watch activity goes to a large topic that is allowed to lag. Priority isolation becomes part of the topology.
+2. **Fan-out splits by audience size.** Small audiences go straight through. Mid-sized ones (1k to 20k) are chunked into tasks of at most 10k recipients, so no single job holds a partition hostage. And the read-time merge threshold drops from 100k watchers to 20k: at 5M deliveries/sec, eager fan-out for mid-size repos is what saturates the workers first, just as the 10x follow-up predicts.
+3. **Collapse windows stretch under backlog.** When consumer lag rises, the collapse window for low-priority types grows from minutes toward an hour, so a storm produces "38 new comments on PR #412" rather than 38 notifications and 38 emails. Lag is the input signal, and direct notifications never stretch.
+4. **Email goes through a mail router.** Tens of millions of emails a day exceed what one provider will accept, and mailbox providers throttle per sending domain and IP reputation. A mail router spreads traffic across several providers and warmed dedicated IP pools, applies per-destination-domain throttles, and switches heavy recipients to digests by default. One provider's outage or throttling now shifts traffic instead of filling the DLQ.
+5. **The inbox gets bounded.** 20 TB/day kept forever is a storage bill for notifications nobody opens. Partitions become `(user_id, month)`, so a heavy user's inbox isn't one enormous partition, and rows expire after 90 days via TTL.
+6. **In-app delivery needs a registry.** With millions of open tabs, one Redis pub/sub can no longer carry every user's channel. A connection registry maps each user to their gateway, the same shape as the chat design, and unread counters move to a sharded Redis Cluster reconciled shard by shard.
+
+**What stays the same**
+
+At-least-once delivery with the `(user_id, event_id)` idempotency key, preferences checked at delivery time rather than fan-out time, bulkheads and circuit breakers per provider, retries with backoff into an alerting DLQ, and Kafka replay after a consumer bug. The pipeline shape is unchanged; it just gains lanes.
+
+<!-- /tabs -->
 
 ---

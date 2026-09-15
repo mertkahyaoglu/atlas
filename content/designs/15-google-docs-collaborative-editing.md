@@ -125,6 +125,8 @@ presence || || Redis, ephemeral: doc_id → {user_id: {cursor, selection, ts}} |
 
 ## High-level architecture
 
+<!-- tab: Today · 1M sessions -->
+
 ```mermaid
 flowchart TB
     subgraph CA ["Client A"]
@@ -178,103 +180,6 @@ flowchart TB
     click Presence href "/docs/04-caching" "Role: live cursors and selections, kept only in memory.<br/>Trade-off: deliberately lossy, so nothing survives a restart, and that's fine."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  ┌────────────────────────┐            ┌────────────────────────┐
-  │      CLIENT A           │            │      CLIENT B           │
-  │                         │            │                         │
-  │  user types "X"         │            │  user types "Y"         │
-  │        │                │            │        │                │
-  │        ▼                │            │        ▼                │
-  │  ┌──────────────────┐  │            │  ┌──────────────────┐  │
-  │  │ APPLY LOCALLY     │  │            │  │ APPLY LOCALLY     │  │
-  │  │ IMMEDIATELY (0ms) │  │            │  │ IMMEDIATELY       │  │
-  │  │ ← never wait for  │  │            │  │                   │  │
-  │  │   the server      │  │            │  │                   │  │
-  │  └────────┬─────────┘  │            │  └────────┬─────────┘  │
-  │           │             │            │           │             │
-  │  ┌────────▼─────────┐  │            │  ┌────────▼─────────┐  │
-  │  │ PENDING BUFFER   │  │            │  │ PENDING BUFFER   │  │
-  │  │ unacked ops +    │  │            │  │                  │  │
-  │  │ base_version     │  │            │  │                  │  │
-  │  └────────┬─────────┘  │            │  └────────┬─────────┘  │
-  └───────────┼────────────┘            └───────────┼────────────┘
-               │  WebSocket                          │  WebSocket
-               └──────────────┬──────────────────────┘
-                               ▼
-              ┌────────────────────────────────────┐
-              │        WS GATEWAY (stateful)         │
-              │   connection registry: doc_id →      │
-              │   connected clients                  │
-              └──────────────┬─────────────────────┘
-                              ▼
-  ┌──────────────────────────────────────────────────────────────┐
-  │        DOCUMENT SESSION SERVER                                 │
-  │        ⚠ ONE AUTHORITATIVE OWNER PER DOCUMENT                  │
-  │        (routed by consistent hash on doc_id;                   │
-  │         leader-elected so exactly one owns it)                 │
-  │                                                                │
-  │  ┌─────────────────────────────────────────────────────┐     │
-  │  │  1. SEQUENCER — assign a total order                  │     │
-  │  │     every op gets a monotonic version number.         │     │
-  │  │     Concurrency is now defined relative to a single   │     │
-  │  │     authoritative sequence, which is what makes       │     │
-  │  │     convergence tractable at all.                     │     │
-  │  └────────────────────┬────────────────────────────────┘     │
-  │                        ▼                                       │
-  │  ┌─────────────────────────────────────────────────────┐     │
-  │  │  2. TRANSFORM (OT)                                    │     │
-  │  │                                                       │     │
-  │  │   Both clients based their op on version 5.           │     │
-  │  │   A: insert "X" at pos 3     (arrives first → v6)     │     │
-  │  │   B: insert "Y" at pos 7     (based on v5, stale)     │     │
-  │  │                                                       │     │
-  │  │   B's op must be TRANSFORMED against A's:             │     │
-  │  │     A inserted 1 char at pos 3, which is BEFORE 7     │     │
-  │  │     → shift B's position: 7 → 8                       │     │
-  │  │     → apply as v7                                     │     │
-  │  │                                                       │     │
-  │  │   Without transformation, B's "Y" lands in the wrong  │     │
-  │  │   place and the two documents DIVERGE FOREVER.        │     │
-  │  └────────────────────┬────────────────────────────────┘     │
-  │                        ▼                                       │
-  │  ┌─────────────────────────────────────────────────────┐     │
-  │  │  3. PERSIST op to append-only log                     │     │
-  │  └────────────────────┬────────────────────────────────┘     │
-  │                        ▼                                       │
-  │  ┌─────────────────────────────────────────────────────┐     │
-  │  │  4. BROADCAST transformed op to all other clients     │     │
-  │  │     + ACK to the originator (with its version)        │     │
-  │  └─────────────────────────────────────────────────────┘     │
-  └──────────┬─────────────────────────────────┬─────────────────┘
-              ▼                                 ▼
-  ┌────────────────────────┐        ┌──────────────────────────┐
-  │  operations (append-    │        │  PRESENCE (Redis)         │
-  │  only log, Cassandra)   │        │  cursors, selections      │
-  │  PK=doc_id SK=version   │        │  ephemeral, TTL, lossy    │
-  └──────────┬─────────────┘        │  ← best-effort, NOT        │
-              │                       │    persisted, NOT ordered  │
-              │ every N ops           └──────────────────────────┘
-              ▼
-  ┌────────────────────────┐
-  │  SNAPSHOT JOB           │
-  │  fold ops → blob → S3   │
-  │  load = snapshot +      │
-  │         ops since       │
-  │  (never replay 1M ops)  │
-  └────────────────────────┘
-
-  ═══════ CLIENT RECEIVES A REMOTE OP ═══════
-   incoming op must be transformed against the client's OWN
-   pending unacked ops before being applied locally.
-   Transformation happens on BOTH ends — this symmetry is what
-   makes everyone converge.
-```
-
-</details>
-
 Each client edits its own copy immediately and syncs through the one Document Session Server that owns the document. WS Gateways carry ops in and out, and the operations log is the durable record everything else is rebuilt from.
 
 1. Client A applies the keystroke locally at once and keeps the op, with its `base_version`, in its pending buffer. The op travels over the WebSocket to the WS Gateway, which routes it by `doc_id` to the Document Session Server that owns the document, and the sequencer there assigns it the next monotonic version.
@@ -284,5 +189,79 @@ Each client edits its own copy immediately and syncs through the one Document Se
 5. Client B transforms the incoming op against its own pending buffer and applies it locally.
 
 Two background flows keep the log usable. Every N ops, a snapshot job writes the folded document to object storage, so a load reads the latest snapshot plus the ops after it. If the owner dies, a new owner is elected, rebuilds from snapshot and ops, and clients resend their unacked ops. Presence takes its own path: cursors and selections live in Redis with a TTL and reach collaborators through the gateway, never through the operations log.
+
+<!-- tab: At 10x · 10M sessions -->
+
+```mermaid
+flowchart TB
+    Editors([Editors · up to ~100 per doc]) -- "WebSocket<br/>nearest region" --> GW["WS gateway fleet · per region"]
+    Viewers([Viewers · up to 10k per doc]) -- "read-only socket" --> GW
+    GW -- "ops from editors" --> Owner
+
+    Leases[("Ownership leases · per region<br/>doc_id → session server + epoch<br/>taken on first open, dropped when idle")] -.-> Owner
+
+    subgraph SESS ["Session server owning the doc · region nearest most editors"]
+        direction TB
+        Owner["SEQUENCER + TRANSFORM<br/>unchanged: one owner per doc"]
+        Group["Group commit<br/>many docs' ops per log write"]
+        Owner --> Group
+    end
+
+    Group --> Log[("Op log · append-only<br/>sharded by doc_id, per region")]
+    Owner -- "editors: every op" --> GW
+    Owner -- "viewers: batched every ~200ms" --> Topic{{"Doc topic · pub/sub<br/>gateways subscribe per doc"}}
+    Topic --> GW
+    Log --> Snap["Snapshot every N ops<br/>and when a doc goes idle"]
+    Snap --> Blob[("Snapshots · object storage")]
+    Owner -. "most editors now elsewhere →<br/>hand off: flush, release lease,<br/>new owner loads snapshot + ops" .-> Leases
+    Presence[("Presence · Redis per region<br/>sampled for big audiences")] -.-> GW
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Log,Leases db
+    class Presence cache
+    class Blob blob
+    class Topic queue
+    class Owner hot
+    class GW,Leases,Group,Log,Topic,Snap,Presence scaled
+
+    click GW href "/docs/07-apis-and-communication" "Role: holds editor and viewer sockets in each region and subscribes to doc topics.<br/>Trade-off: stateful, so a handoff changes where ops are routed but not where sockets live."
+    click Leases href "/docs/03-consistency-and-distributed-systems" "Role: maps each open doc to its owning session server, with a fencing epoch.<br/>Trade-off: a lease service to run per region, and each handoff pauses a doc briefly."
+    click Owner href "/docs/03-consistency-and-distributed-systems" "Role: sequences and transforms the doc's ops, exactly as today.<br/>Trade-off: still one owner per doc, so one doc's editing rate is capped by one server."
+    click Group href "/docs/02-data-storage" "Role: batches ops from many docs into one log write every few milliseconds.<br/>Trade-off: adds a few milliseconds before an op is acknowledged."
+    click Log href "/docs/02-data-storage" "Role: the append-only op log, sharded by doc_id in each region.<br/>Trade-off: a cross-region handoff has to replicate the log before the new owner starts."
+    click Topic href "/docs/05-async-messaging-and-event-driven" "Role: a batched op stream per doc for viewers, fanned out by the gateways.<br/>Trade-off: viewers see edits ~200ms after editors do."
+    click Snap href "/docs/09-specialized-building-blocks" "Role: snapshots every N ops and whenever a doc goes idle.<br/>Trade-off: more snapshot writes for docs that are opened and closed often."
+    click Presence href "/docs/04-caching" "Role: cursors per region, sampled when the audience is large.<br/>Trade-off: in a big doc you don't see everyone's cursor."
+```
+
+Same product at 10x. Documents are still independent, so raw session count is the easy part; what 10x really adds is users in every region and documents with audiences today's design never planned for. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Concurrent edit sessions | 1M | 10M |
+| Documents | 1B | ~10B |
+| Op rate at peak | a few M/sec | tens of M/sec |
+| Largest live audience on one doc | ~50 editors | ~100 editors + 10k viewers |
+| Regions | 1 | several |
+
+**What changes, and the number that forces it**
+
+1. **Viewers stop costing the owner.** A company-wide doc with 10k people watching would make the owning server write every op to 10k sockets. Editors still receive every op directly, but viewers read from a per-document pub/sub topic that gateways subscribe to, receiving ops batched every ~200ms. The owner's work now grows with the number of editors, not the size of the audience.
+2. **Ownership lives near the editors.** With users in every region, an owner on another continent adds a long round trip to every remote edit and ack. Optimistic local application hides it while typing, but collaborators' changes arrive late. The owner runs in the region closest to most active editors and hands off when that majority moves: flush, release the lease, and the new owner loads snapshot plus ops. It's the existing failover path, run on purpose.
+3. **Leases replace per-document elections.** Running leader election for each of millions of open documents is a lot of coordination. A regional lease service maps `doc_id` to a session server; ownership is taken on first open and dropped once the doc goes idle, so the ~10B mostly idle documents cost nothing. A fencing epoch on the lease keeps a paused old owner from writing after a handoff.
+4. **Op writes are group-committed.** Tens of millions of ops/sec as individual appends would be tens of millions of log writes. Each session server batches ops from every document it owns into one write every few milliseconds, then acks, well inside the 200ms remote-visibility budget.
+5. **Snapshots follow activity.** Snapshotting every N ops still applies, plus a snapshot whenever a doc goes idle, so the next open, possibly on a different owner in a different region, loads quickly.
+6. **Presence is sampled.** Ten thousand viewer cursors is noise, not collaboration. Large audiences show editors' cursors plus a count ("and 9,400 others"), and presence stays in each region's Redis without ever crossing regions.
+
+**What stays the same**
+
+Edits apply locally at 0ms. There is still one authoritative sequencer per document, convergence still comes from OT (or a CRDT), the op log is still append-only and never garbage-collected, snapshots remain an optimization on top of it, and presence stays deliberately lossy. The correctness core is untouched; 10x only changes who pays for the audience and where the owner sits.
+
+<!-- /tabs -->
 
 ---

@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { buildToc, designToc, getAllDocs, getDoc, getSiblings, toMeta } from "@/lib/content";
+import { splitTabs } from "@/lib/tabs";
 import { accentVar, cn } from "@/lib/utils";
 import { TopBar } from "@/components/layout/TopBar";
 import { DocHeader } from "@/components/docs/DocHeader";
 import { Markdown } from "@/components/docs/Markdown";
+import { ContentTabs } from "@/components/docs/ContentTabs";
 import { DesignDeepDives, DesignOverview } from "@/components/docs/DesignPanels";
 import { PrevNext } from "@/components/docs/PrevNext";
 import { Toc } from "@/components/docs/Toc";
@@ -41,7 +43,13 @@ export default function DocPage({ params }: PageProps) {
           <DocHeader doc={toMeta(doc)} showHardPart={!doc.design} />
           <article className={cn("doc", doc.group === "design" && "doc-design")}>
             {doc.design && <DesignOverview design={doc.design} />}
-            <Markdown content={doc.content} />
+            {splitTabs(doc.content).map((segment, i) =>
+              segment.kind === "tabs" ? (
+                <ContentTabs key={i} tabs={segment.tabs} />
+              ) : (
+                <Markdown key={i} content={segment.content} />
+              ),
+            )}
             {doc.design && <DesignDeepDives design={doc.design} />}
           </article>
           <PrevNext prev={prev} next={next} />

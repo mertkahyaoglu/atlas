@@ -129,6 +129,8 @@ corrections || || append-only record of adjustments || applied after a window cl
 
 ## High-level architecture
 
+<!-- tab: Today · 1M events/s -->
+
 ```mermaid
 flowchart TB
     Servers([Ad servers worldwide<br/>1M events/sec<br/>fire-and-forget: never blocks<br/>the ad response]) --> Ingest
@@ -183,102 +185,6 @@ flowchart TB
     click Archive href "/docs/09-specialized-building-blocks" "Role: immutable raw events kept beyond Kafka retention, so numbers can be recomputed.<br/>Trade-off: batch recomputation is slow, but it is the source of truth for billing."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  [Ad servers worldwide] ── 1M events/sec ──┐
-     fire-and-forget, never block           │
-     the ad response on analytics           │
-                                             ▼
-  ┌──────────────────────────────────────────────────────────┐
-  │              INGEST GATEWAY (regional, stateless)         │
-  │   validate, enrich (geo from IP, device parse),           │
-  │   attach RECEIVE timestamp (keep the EVENT timestamp too) │
-  └────────────────────────┬─────────────────────────────────┘
-                            ▼
-  ┌──────────────────────────────────────────────────────────┐
-  │                 KAFKA: ad.events                          │
-  │   partitioned by ad_id  → same ad always same partition   │
-  │   (ordering per ad; enables per-key stateful processing)  │
-  │   retention 7 days → REPLAYABLE                           │
-  └──────┬───────────────────────────────────────┬───────────┘
-          │                                       │
-          │ HOT PATH (seconds)                    │ COLD PATH (hours)
-          ▼                                       ▼
-  ┌────────────────────────────┐      ┌──────────────────────────┐
-  │   STREAM PROCESSOR (Flink)  │      │  ARCHIVE to OBJECT STORE  │
-  │                             │      │  s3://raw/dt=/hr=         │
-  │ ┌─────────────────────────┐ │      │  immutable, cheap,        │
-  │ │ 1. DEDUPE               │ │      │  columnar (Parquet)       │
-  │ │  keyed state on event_id│ │      └────────────┬─────────────┘
-  │ │  TTL = late window      │ │                    │
-  │ └───────────┬─────────────┘ │                    ▼
-  │             ▼                │      ┌──────────────────────────┐
-  │ ┌─────────────────────────┐ │      │  BATCH RECONCILIATION     │
-  │ │ 2. EVENT-TIME WINDOWING │ │      │  (nightly)                │
-  │ │                         │ │      │  recompute yesterday from │
-  │ │  ⚠ window by WHEN IT    │ │      │  raw → authoritative      │
-  │ │    HAPPENED, not when   │ │      │  numbers for BILLING      │
-  │ │    it arrived           │ │      │  → overwrite stream       │
-  │ │                         │ │      │    estimates              │
-  │ │  tumbling 1-min buckets │ │      └────────────┬─────────────┘
-  │ └───────────┬─────────────┘ │                    │
-  │             ▼                │                    │
-  │ ┌─────────────────────────┐ │                    │
-  │ │ 3. WATERMARK             │ │                    │
-  │ │  "we believe all events  │ │                    │
-  │ │   before T have arrived" │ │                    │
-  │ │  = max_event_time − δ    │ │                    │
-  │ │  (δ ≈ 5 min allowed      │ │                    │
-  │ │   lateness)              │ │                    │
-  │ │                          │ │                    │
-  │ │  watermark passes window │ │                    │
-  │ │   end → EMIT result      │ │                    │
-  │ │                          │ │                    │
-  │ │  later arrival →         │ │                    │
-  │ │   · within grace: EMIT   │ │                    │
-  │ │     UPDATE (retraction)  │ │                    │
-  │ │   · beyond grace: side   │ │                    │
-  │ │     output → fixed by    │ │                    │
-  │ │     batch layer          │ │                    │
-  │ └───────────┬─────────────┘ │                    │
-  │             ▼                │                    │
-  │ ┌─────────────────────────┐ │                    │
-  │ │ 4. AGGREGATE + SKETCHES │ │                    │
-  │ │  counts, sums,           │ │                    │
-  │ │  HyperLogLog for uniques │ │                    │
-  │ └───────────┬─────────────┘ │                    │
-  │             │                │                    │
-  │  CHECKPOINTS to durable      │                    │
-  │  storage → exactly-once      │                    │
-  │  state on recovery           │                    │
-  └─────────────┼────────────────┘                    │
-                 ▼                                     ▼
-  ┌──────────────────────────────────────────────────────────┐
-  │        OLAP STORE  (Druid / ClickHouse)                   │
-  │   columnar · pre-aggregated by minute                     │
-  │   rollups: minute → hour → day (older data coarser)       │
-  │   ← stream writes "fast, approximate"                     │
-  │   ← batch OVERWRITES with "slow, exact"                   │
-  └──────────────────────────┬───────────────────────────────┘
-                              ▼
-  ┌──────────────────────────────────────────────────────────┐
-  │   QUERY SERVICE  → dashboards, reports, billing export    │
-  │   cache recent windows in Redis                           │
-  └──────────────────────────────────────────────────────────┘
-
-  ┌──────────────────────────────────────────────────────────┐
-  │  FRAUD FILTER (parallel stream job)                        │
-  │   · same user clicking same ad repeatedly                  │
-  │   · impossible click-through rates                         │
-  │   · datacenter IP ranges, known bot signatures             │
-  │   → flags events; billing excludes flagged                 │
-  └──────────────────────────────────────────────────────────┘
-```
-
-</details>
-
 Every event enters through one ingest path and then splits in two: a hot path in Flink produces approximate numbers within seconds, and a cold path recomputes exact numbers from the raw archive overnight. Both write to the same OLAP store.
 
 1. Ad servers fire events at the regional ingest gateway without waiting for a reply. The gateway validates them, adds geo and device, stamps a receive time next to the event time, and writes to Kafka `ad.events`, partitioned by `ad_id`. Flink consumes the topic and dedupes on `event_id` first.
@@ -288,5 +194,86 @@ Every event enters through one ingest path and then splits in two: a hot path in
 5. The query service reads the OLAP store for dashboards, reports and the billing export, and caches recent windows in Redis.
 
 The cold path reads the same topic. Raw events are archived as Parquet in object storage, partitioned by date and hour, and outlive Kafka's 7-day retention. Each night, reconciliation recomputes yesterday from the archive and overwrites the stream estimates in the OLAP store with the exact figures billing uses. In parallel, the fraud filter reads `ad.events` and flags suspicious clicks for that nightly run instead of deleting them.
+
+<!-- tab: At 10x · 10M events/s -->
+
+```mermaid
+flowchart TB
+    Servers([Ad servers · 10M events/sec<br/>fire-and-forget]) --> Ingest["Ingest gateway · per region<br/>validate · enrich<br/>keep the EVENT time"]
+    Ingest --> Bus{{"Kafka · one cluster per region<br/>partitioned by ad_id"}}
+
+    subgraph HOT ["Hot path · per region · seconds"]
+        direction TB
+        Dedup["1 · APPROXIMATE dedupe<br/>Bloom filter per time bucket<br/>exact dedupe left to batch"]
+        PreAgg["2 · local pre-aggregation<br/>sum per ad, minute, dimensions<br/>BEFORE the shuffle"]
+        Window["3 · event-time windows + watermark<br/>late but in grace → EMIT UPDATE<br/>incremental checkpoints"]
+        Dedup --> PreAgg --> Window
+    end
+    Bus --> Dedup
+
+    Window -- "regional aggregates<br/>+ HyperLogLog sketches" --> Global["Global merge<br/>ships aggregates, never raw events"]
+    Global -- "fast, approximate" --> OLAP[("OLAP store · tiered<br/>recent days on local SSD<br/>older segments in deep storage")]
+
+    subgraph COLD ["Cold path · per region · hours"]
+        direction TB
+        Archive[("Raw archive · object storage<br/>~170 TB/day, stays in its region")]
+        Hourly["Hourly recompute<br/>exact dedupe · fraud excluded<br/>AUTHORITATIVE for billing"]
+        Archive --> Hourly
+    end
+    Bus --> Archive
+    Hourly -- "exact · OVERWRITES" --> OLAP
+
+    Fraud["Fraud filter · stream job<br/>FLAGS rather than deletes"] -.-> Hourly
+    Bus --> Fraud
+
+    OLAP --> Query["Query service<br/>materialized per-advertiser summaries<br/>result cache for dashboards"]
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class OLAP db
+    class Archive blob
+    class Bus queue
+    class Window,Dedup hot
+    class Ingest,Bus,Dedup,PreAgg,Global,OLAP,Archive,Hourly,Query scaled
+
+    click Ingest href "/docs/07-apis-and-communication" "Role: regional, stateless ingest close to the ad servers.<br/>Trade-off: a pipeline per region to deploy and keep in step."
+    click Bus href "/docs/05-async-messaging-and-event-driven" "Role: one Kafka cluster per region, partitioned by ad_id.<br/>Trade-off: a global view only exists after aggregates are merged."
+    click Dedup href "/docs/09-specialized-building-blocks" "Role: approximate dedupe with a Bloom filter per time bucket.<br/>Trade-off: a rare false positive drops a real event from the live number until the batch corrects it."
+    click PreAgg href "/docs/09-specialized-building-blocks" "Role: sums partial aggregates on each task before the network shuffle.<br/>Trade-off: an extra combine step, and the window operator never sees raw events."
+    click Window href "/docs/09-specialized-building-blocks" "Role: event-time windows and watermarks, with incremental checkpoints.<br/>Trade-off: same late-data policy as today; state is smaller but still large."
+    click Global href "/docs/05-async-messaging-and-event-driven" "Role: merges regional aggregates and HyperLogLog sketches into global figures.<br/>Trade-off: global numbers lag the regional ones slightly."
+    click OLAP href "/docs/02-data-storage" "Role: pre-aggregated rows, recent days on SSD and older segments in deep storage.<br/>Trade-off: queries over old ranges are slower while their segments load."
+    click Archive href "/docs/09-specialized-building-blocks" "Role: immutable raw events, kept in the region they arrived in.<br/>Trade-off: a global reprocessing job has to run in every region."
+    click Hourly href "/docs/09-specialized-building-blocks" "Role: exact recomputation per hour, with full dedupe and fraud excluded.<br/>Trade-off: many small batch runs to schedule and monitor."
+    click Query href "/docs/04-caching" "Role: serves dashboards from materialized per-advertiser summaries and a result cache.<br/>Trade-off: summaries have fixed shapes, so ad-hoc slices still hit the OLAP store."
+```
+
+Same pipeline at 10x. 10M events/sec is in the range of the largest ad platforms, so 10x is the realistic next tier. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Events | 1M/sec | 10M/sec |
+| Raw volume | ~17 TB/day | ~170 TB/day |
+| Aggregate rows | ~1.4B/day | ~14B/day |
+| Dedupe keys for a 1-hour late window | ~3.6B | ~36B |
+| Dashboard queries | ~1,000/sec | ~10,000/sec |
+
+**What changes, and the number that forces it**
+
+1. **Exact dedupe leaves the stream.** Keyed state on every `event_id` across an hour-long late window is ~36B keys at 10x. Checkpoints get so large that recovering from a failure takes longer than the failure lasted. The stream keeps a Bloom filter per time bucket instead: cheap, approximate, and a rare false positive only drops a real click from the live number. Exact dedupe moves to the batch recompute, which billing already treats as authoritative.
+2. **Aggregation starts before the shuffle.** Salting hot keys works for a few known viral ads; at 10x there are always some you didn't predict. Each task sums counts locally per `(ad, minute, dimensions)` before the network shuffle, so a viral ad sends a handful of partial aggregates to its partition instead of millions of raw events.
+3. **The pipeline runs per region.** Shipping ~170 TB/day of raw events to one place costs a fortune in cross-region bandwidth and buys nothing. Each region runs its own Kafka, stream job and raw archive, and ships only aggregates. HyperLogLog sketches are mergeable, so global unique counts still work.
+4. **The batch recompute goes hourly.** A nightly recompute over ~170 TB of raw events no longer fits in a night. Recomputing each hour from the archive, once that hour's late window has closed, delivers billing corrections within hours and keeps any failed run small.
+5. **The OLAP store is tiered.** 14B+ aggregate rows a day on local SSD forever isn't affordable. Recent days stay on SSD; older segments live in deep object storage and load when queried, and minute → hour → day rollups kick in sooner.
+6. **Dashboards read materialized summaries.** At ~10k queries/sec, most dashboard loads ask the same per-advertiser questions. Those summaries are materialized as windows close and served from a result cache, leaving the OLAP store for reports.
+
+**What stays the same**
+
+Windows by event time, not processing time. Watermarks, the three-tier late-data policy, idempotent upserts keyed by `(ad, window, dimensions)`, the same code for streaming and replay, an immutable raw archive, ingest that never blocks ad serving, and fraud that flags rather than deletes. The live number is still an estimate and the batch number is still the bill; only the boundary between them moved from nightly to hourly.
+
+<!-- /tabs -->
 
 ---

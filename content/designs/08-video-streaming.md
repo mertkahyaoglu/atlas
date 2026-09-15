@@ -113,6 +113,8 @@ Note what is *not* in the database: the video bytes. Metadata in the database, b
 
 ## High-level architecture
 
+<!-- tab: Today · 25 Tbps -->
+
 ```mermaid
 flowchart TB
     Creator([Creator]) -- "1 · POST metadata only" --> UploadSvc[Upload Service]
@@ -170,115 +172,6 @@ flowchart TB
     click Views href "/docs/05-async-messaging-and-event-driven" "Role: counts views and playback quality without slowing playback.<br/>Trade-off: counts are approximate and arrive late."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
- ═══════════════════ UPLOAD PATH ═══════════════════
-
-  [Creator]
-     │ 1. POST /v1/videos  (metadata only)
-     ▼
-  ┌─────────────────┐    2. returns PRESIGNED multipart URL
-  │ Upload Service  │───────────────────────┐
-  └─────────────────┘                        │
-     │                                        │
-     │ 3. client uploads DIRECTLY ────────────┘
-     │    (bytes NEVER touch app servers)
-     ▼
-  ┌──────────────────────────────────┐
-  │   OBJECT STORAGE  (S3) — raw/     │
-  │   · multipart: chunked, resumable │
-  │   · retry only the failed part    │
-  └──────────────┬───────────────────┘
-                  │ 4. completion event
-                  ▼
-  ┌──────────────────────────────────┐
-  │  Kafka: video.uploaded            │
-  └──────────────┬───────────────────┘
-                  ▼
- ═══════════ TRANSCODING PIPELINE (a DAG) ═══════════
-
-  ┌───────────────────────────────────────────────────────────┐
-  │              ORCHESTRATOR (job DAG state machine)          │
-  └───┬───────────────────────────────────────────────────────┘
-      │
-      ▼
-  ┌──────────────┐
-  │ 1. INSPECT   │  probe codec, duration, resolution, audio tracks
-  └──────┬───────┘
-         ▼
-  ┌──────────────┐
-  │ 2. SPLIT     │  cut source into ~10s CHUNKS
-  └──────┬───────┘  ← this is what makes transcoding parallel
-         │
-    ┌────┴─────┬──────────┬──────────┬──────────┐
-    ▼          ▼          ▼          ▼          ▼
- ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
- │chunk0 │ │chunk1 │ │chunk2 │ │chunk3 │ │chunkN │   FAN-OUT to
- └───┬───┘ └───┬───┘ └───┬───┘ └───┬───┘ └───┬───┘   worker fleet
-     │         │         │         │         │        (spot/preemptible
-     ▼         ▼         ▼         ▼         ▼         instances — jobs
- ┌─────────────────────────────────────────────┐       are retryable,
- │ 3. TRANSCODE each chunk × each rendition    │       so cheap compute
- │    240p 360p 480p 720p 1080p 4K             │       is fine)
- │    codecs: H.264 (compat) + AV1/VP9 (size)  │
- └───────────────────┬─────────────────────────┘
-                      ▼
- ┌─────────────────────────────────────────────┐
- │ 4. PARALLEL SIDE-JOBS                       │
- │    · thumbnails (sprite sheet for scrubbing)│
- │    · audio extraction + normalization       │
- │    · captions (ASR) / subtitle burn-in      │
- │    · content moderation / copyright match   │
- └───────────────────┬─────────────────────────┘
-                      ▼
- ┌─────────────────────────────────────────────┐
- │ 5. PACKAGE  → HLS / DASH segments +          │
- │    master manifest listing every rendition   │
- └───────────────────┬─────────────────────────┘
-                      ▼
- ┌─────────────────────────────────────────────┐
- │ 6. WRITE to OBJECT STORAGE (processed/)      │
- │    + update videos.status = READY            │
- │    + notify creator                          │
- └───────────────────┬─────────────────────────┘
-                      │
- ═══════════════════ PLAYBACK PATH ═══════════════════
-                      ▼
-              ┌────────────────┐
-              │ Origin (S3)     │  ← only serves CDN MISSES (<5%)
-              └───────┬────────┘
-                      │ pull on miss
-       ┌──────────────┴───────────────┬──────────────────┐
-       ▼                               ▼                  ▼
- ┌────────────┐               ┌────────────┐      ┌────────────┐
- │ CDN EDGE   │               │ CDN EDGE   │      │ CDN EDGE   │
- │ London     │               │ Tokyo      │      │ São Paulo  │
- └─────┬──────┘               └─────┬──────┘      └─────┬──────┘
-       │  >95% of all bytes served here                  │
-       ▼                             ▼                    ▼
-  ┌──────────────────────────────────────────────────────────┐
-  │                    PLAYER (ABR logic)                     │
-  │                                                           │
-  │  1. GET master.m3u8  → list of renditions                 │
-  │  2. start at a conservative bitrate                       │
-  │  3. measure download speed + buffer level each segment    │
-  │  4. step UP if buffer healthy, DOWN aggressively if not   │
-  │                                                           │
-  │  [240p][360p][480p][720p][1080p]  ← switches mid-stream   │
-  │            ▲▲▲                      at segment boundaries │
-  │        network dip                                        │
-  └──────────────────────────────────────────────────────────┘
-                      │
-                      ▼ view events (async, fire-and-forget)
-              ┌────────────────┐
-              │ Kafka → Flink  │ → view counts, watch time, QoE metrics
-              └────────────────┘
-```
-
-</details>
-
 Metadata and bytes take different routes. The Upload Service handles only metadata and upload URLs, while the video itself goes from the creator to object storage, through a transcoding DAG, and out to viewers from CDN edges.
 
 1. The creator posts the video's metadata, and nothing else, to the Upload Service.
@@ -293,5 +186,87 @@ Metadata and bytes take different routes. The Upload Service handles only metada
 5. The packaged output is written to object storage under `processed/`, and the video's status becomes `READY`.
 
 Playback runs the other way, and it doesn't touch the app servers either. The player requests segments from a CDN edge such as London, Tokyo or São Paulo, and the edges serve over 95% of all bytes. On a miss, an edge pulls the segment from the Origin, which exists only to serve those misses from `processed/`. The player measures throughput and buffer depth to choose the bitrate of each next segment, and sends view events asynchronously to Kafka and Flink for view counts, watch time and QoE.
+
+<!-- tab: At 10x · 250 Tbps -->
+
+```mermaid
+flowchart TB
+    Creator([Creator]) -- "presigned multipart<br/>to the nearest region" --> Raw[("Object storage · raw/<br/>originals move to an archive tier")]
+    Raw -- "completion event" --> Bus{{"Kafka · video.uploaded"}}
+    Bus --> Predict["Popularity predictor<br/>creator history · early views"]
+    Predict --> Orch
+
+    subgraph PIPE ["Transcoding · spot capacity in several regions"]
+        direction TB
+        Orch["Orchestrator · job DAG<br/>priority lanes"]
+        Ladder{"expected views?"}
+        Cheap["Long tail<br/>H.264 · 3 renditions<br/>re-encoded if it trends"]
+        Full["Popular<br/>AV1 + H.264 · full ladder<br/>encode cost repaid in bandwidth"]
+        Package["Chunk on keyframes · transcode<br/>package via CMAF · manifest"]
+        Orch --> Ladder
+        Ladder -- "low" --> Cheap --> Package
+        Ladder -- "high" --> Full --> Package
+    end
+
+    Package --> Processed[("Object storage · processed/<br/>erasure-coded<br/>cold renditions deleted")]
+    Processed --> Shield["Origin shield · per region<br/>many edge misses → one fetch"]
+    Shield --> A1 & A2 & A3
+
+    subgraph ISP ["Cache appliances inside ISP networks"]
+        direction LR
+        A1[Mumbai ISP]
+        A2[Lagos ISP]
+        A3[Chicago ISP]
+    end
+
+    Fill["Overnight fill<br/>push tomorrow's predicted hits<br/>during off-peak hours"] -.-> A1 & A2 & A3
+    Steer["Steering service<br/>picks an appliance per session<br/>by health, load and contents"] --> Player
+    A1 & A2 & A3 --> Player
+
+    Player["Player · adaptive bitrate<br/>steps DOWN aggressively,<br/>UP conservatively"]
+    Player -. "view + QoE events · async" .-> Views{{"Kafka → Flink<br/>view counts · sampled QoE"}}
+
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Raw,Processed blob
+    class Bus,Views queue
+    class Ladder hot
+    class Predict,Ladder,Cheap,Full,Processed,Shield,A1,A2,A3,Fill,Steer scaled
+
+    click Predict href "/docs/09-specialized-building-blocks" "Role: estimates how many views a new upload will get, from creator history and early views.<br/>Trade-off: a surprise hit starts on the cheap ladder until it's re-encoded."
+    click Ladder href "/docs/09-specialized-building-blocks" "Role: picks the encoding ladder each video is worth.<br/>Trade-off: two ladders to maintain, plus re-encoding work when predictions miss."
+    click Processed href "/docs/09-specialized-building-blocks" "Role: renditions stored with erasure coding; renditions of cold videos are deleted.<br/>Trade-off: a cold video that trends again is regenerated from its archived original."
+    click Shield href "/docs/04-caching" "Role: collapses many edge misses into one origin fetch per segment.<br/>Trade-off: another cache tier to size and keep healthy."
+    click A1 href "/docs/09-specialized-building-blocks" "Role: cache appliances inside ISP networks, serving viewers from next door.<br/>Trade-off: hardware to ship, host and replace at thousands of partner sites."
+    click Fill href "/docs/04-caching" "Role: pushes predicted popular titles to appliances during off-peak hours.<br/>Trade-off: wrong predictions waste scarce appliance disk."
+    click Steer href "/docs/01-foundations" "Role: picks an appliance per playback session by health, load and what it holds.<br/>Trade-off: one more call before playback starts, so it must stay very fast."
+    click Views href "/docs/05-async-messaging-and-event-driven" "Role: counts views and samples playback quality without slowing playback.<br/>Trade-off: counts are approximate and arrive late."
+```
+
+Same product at 10x. At 100x the service would push 2.5 Pbps of video, which stops being a system design and becomes a telecom build-out, so this tab uses 10x. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Upload rate | 500 hours/min | 5,000 hours/min |
+| Concurrent viewers | 5M | 50M |
+| Egress | 25 Tbps | 250 Tbps |
+| New stored video, ~15 GB per hour | ~11 PB/day | ~110 PB/day |
+
+**What changes, and the number that forces it**
+
+1. **The edge moves inside ISPs.** At 250 Tbps, paying a commercial CDN per gigabyte becomes the dominant cost of the business. Cache appliances are placed inside ISP networks, which host them happily because the traffic no longer crosses their own transit links. Bytes travel from a box in the viewer's ISP, never across the backbone. It's the Open Connect endpoint that today's CDN trade-off already points at.
+2. **Appliances are filled overnight, by prediction.** Appliance disks are limited, and pulling every miss during prime time hammers the shield. A fill job pushes tomorrow's predicted popular titles into each appliance during off-peak hours, while the long tail still pulls on miss.
+3. **A steering service chooses the edge.** DNS-based routing can't tell that an appliance is full, unhealthy or missing a title. The player asks a steering service, which picks an appliance for each session by health, load and what that appliance actually holds.
+4. **An origin shield tier becomes mandatory.** With thousands of appliances, a new release's first wave of misses would multiply into origin fetches. A regional shield collapses them, so many edges produce one origin fetch per segment, as the viral-video follow-up describes.
+5. **The encoding ladder depends on expected views.** AV1 saves a lot of bandwidth but costs far more CPU to encode. At 5,000 hours uploaded per minute, encoding everything in AV1 at a full ladder is a compute bill that never pays back for videos nobody watches. A popularity predictor decides: likely hits get AV1 plus H.264 at the full ladder, and the long tail gets H.264 at a few renditions, re-encoded if it starts to trend.
+6. **Storage is erasure-coded and pruned.** ~110 PB/day of new renditions can't be kept at 3x replication. Processed renditions are erasure-coded, originals move to an archive tier, and the renditions of videos that went cold are deleted and regenerated from the original on demand.
+
+**What stays the same**
+
+Video bytes never touch the application servers. Uploads are still presigned, multipart and resumable, transcoding is still chunked on keyframes and run on spot capacity, players still step down fast and up slowly, and view counts still come from a stream aggregation rather than database increments.
+
+<!-- /tabs -->
 
 ---

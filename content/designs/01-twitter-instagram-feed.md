@@ -107,6 +107,8 @@ Two directions of the social graph are stored separately because fan-out needs "
 
 ## High-level architecture
 
+<!-- tab: Today · ~150k reads/s -->
+
 ```mermaid
 flowchart TB
     Client([Mobile / Web client]) --> GW[API Gateway<br/>auth · rate limit]
@@ -167,84 +169,6 @@ flowchart TB
     click Media href "/docs/09-specialized-building-blocks" "Role: serves images and video from the edge, never through app servers.<br/>Trade-off: egress cost and slow invalidation, so deletes take time to disappear."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                                      ┌──────────────┐
-   [Mobile / Web]───────────────────► │   CDN        │  media (images, video)
-          │                            └──────────────┘
-          │ HTTPS                             ▲
-          ▼                                   │
-   ┌──────────────┐                    ┌──────────────┐
-   │ API Gateway  │  authn, rate limit │ Blob Storage │  S3, presigned upload
-   └──────┬───────┘                    └──────────────┘
-          │                                   ▲
-    ┌─────┴──────────────────────┐            │ direct upload
-    ▼                            ▼            │
-┌────────────┐            ┌────────────┐      │
-│ WRITE PATH │            │ READ PATH  │      │
-│ Post Svc   │            │ Timeline   │──────┘
-└─────┬──────┘            │ Service    │
-      │                   └──────┬─────┘
-      │ 1. write post            │
-      ▼                          │
-┌──────────────┐                 │
-│ posts store  │◄────────────────┼── hydrate post bodies
-│ (Cassandra)  │                 │
-└─────┬────────┘                 │
-      │ 2. emit event            │
-      ▼                          │
-┌───────────────────────┐        │
-│ Kafka "post.created"  │        │
-└──────────┬────────────┘        │
-           │                     │
-           ▼                     │
-┌────────────────────────────┐   │
-│   FAN-OUT SERVICE          │   │
-│   (consumer group, scaled) │   │
-│                            │   │
-│  ┌──────────────────────┐  │   │
-│  │ author.follower_count│  │   │
-│  │      > 100k ?        │  │   │
-│  └───┬──────────────┬───┘  │   │
-│      │ NO           │ YES  │   │
-│      ▼              ▼      │   │
-│  fan out to      DO NOTHING│   │
-│  followers       (pull at  │   │
-│  (batched        read time)│   │
-│   writes)                  │   │
-└──────┬─────────────────────┘   │
-       │                          │
-       ▼                          │
-┌────────────────────┐            │
-│  user_timeline     │◄───────────┤ A. read precomputed feed
-│  PK=user_id        │            │
-│  SK=post_id DESC   │            │
-│  (Cassandra)       │            │
-└────────────────────┘            │
-                                   │
-┌────────────────────┐            │
-│ Celebrity Cache    │◄───────────┤ B. pull celebrity recent posts
-│ Redis: celeb_id →  │            │    (one cached list serves
-│  [recent 100 posts]│            │     all their followers)
-└────────────────────┘            │
-                                   │
-                            ┌──────▼──────────┐
-                            │  MERGE + SORT   │
-                            │  A ∪ B by ts    │
-                            │  filter deleted │
-                            │  paginate       │
-                            └──────┬──────────┘
-                                   ▼
-                            ┌─────────────┐
-                            │ Redis cache │  hot users' assembled
-                            │ timeline:uid│  timeline, TTL ~30s
-                            └─────────────┘
-```
-
-</details>
-
 The feed is a write path and a read path behind one API Gateway. They never call each other: the write path fills two stores, and the read path merges them.
 
 1. The client's `POST /posts` passes the API Gateway, which handles auth and rate limiting, and reaches the Post Service.
@@ -256,5 +180,103 @@ The feed is a write path and a read path behind one API Gateway. They never call
 Reads never wait on fan-out. A `GET /timeline` reaches the Timeline Service, which touches only what the write path left behind, `user_timeline` rows and the celebrity cache, and keeps each merged page in the Redis assembled timeline for 30 seconds. Images and video bypass both paths: the response carries media URLs, and the client loads the bytes from Blob storage + CDN.
 
 **Read path in words:** Timeline Service checks Redis for an assembled timeline. On miss, it reads the user's precomputed `user_timeline` rows (cheap, single partition), separately fetches recent posts from the handful of celebrities that user follows (cached, so near-free), merges the two lists by post_id descending, hydrates post bodies, and caches the result for 30 seconds.
+
+<!-- tab: At 10x · ~1.5M reads/s -->
+
+```mermaid
+flowchart TB
+    Client([Mobile / Web client]) --> Geo["GeoDNS + regional LB<br/>nearest of ~5 regions"]
+    Geo --> GW["API Gateway · per region<br/>auth · rate limit"]
+    GW -- "POST /posts" --> PostSvc
+    GW -- "GET /timeline" --> Timeline
+
+    subgraph WRITE ["Write path · author's home region"]
+        direction TB
+        PostSvc[Post Service]
+        PostStore[("posts · Cassandra<br/>replicated to every region")]
+        Bus{{"Kafka · post.created<br/>mirrored to every region"}}
+        PostSvc --> PostStore
+        PostSvc --> Bus
+    end
+
+    subgraph FANOUT ["Fan-out · runs in each follower's region"]
+        direction TB
+        Decide{"ACTIVE followers<br/>> threshold ?"}
+        Followers[("Follower lists · chunked<br/>~10k ids per partition")]
+        Lanes["Priority lanes by fan-out size<br/>small authors never queue<br/>behind a 5M-follower post"]
+        Skip["Skip eager fan-out<br/>mark for read-time pull"]
+        Decide -- "no" --> Lanes
+        Decide -- "yes · celebrity" --> Skip
+        Followers -- "page through" --> Lanes
+    end
+    Bus --> Decide
+
+    Lanes --> Feed[("Timeline lists · in memory<br/>capped at 800 refs<br/>active users only")]
+    Skip --> CelebCache[("Celebrity cache<br/>one copy per region")]
+
+    subgraph READ ["Read path · reader's region"]
+        direction TB
+        Timeline[Timeline Service]
+        TimelineCache[("Assembled timeline<br/>TTL 30s")]
+        Merge["Merge and sort by post_id<br/>cap celebrity lists merged<br/>no list → rebuild from posts"]
+        Timeline -- "cache miss" --> Merge
+        Merge -- "store 30s" --> TimelineCache
+    end
+    Feed -- "precomputed refs" --> Merge
+    CelebCache -- "celebrity posts" --> Merge
+    PostStore -. "returning dormant user" .-> Merge
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
+    classDef lb fill:#5d3759,stroke:#e066b2,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class PostStore,Followers db
+    class Feed,CelebCache,TimelineCache cache
+    class Bus queue
+    class GW gateway
+    class Geo lb
+    class Decide hot
+    class Geo,PostStore,Bus,Decide,Followers,Lanes,Feed,CelebCache,Merge scaled
+
+    click Geo href "/docs/01-foundations" "Role: sends each user to the nearest of ~5 regions.<br/>Trade-off: when a region fails, its users land on the others, which need headroom for them."
+    click PostStore href "/docs/02-data-storage" "Role: every post, replicated to all regions for hydration and rebuilds.<br/>Trade-off: replication lag means a rebuild can briefly miss a post made seconds ago elsewhere."
+    click Bus href "/docs/05-async-messaging-and-event-driven" "Role: carries each post to every region, where local consumers fan it out.<br/>Trade-off: cross-region mirroring adds seconds before distant followers see the post."
+    click Decide href "/docs/06-fanout-and-feeds" "Role: chooses eager fan-out or read-time pull by active followers, not total.<br/>Trade-off: activity has to be tracked per follower, and the threshold needs tuning."
+    click Followers href "/docs/02-data-storage" "Role: the reverse follow graph, split into fixed-size partitions per account.<br/>Trade-off: one account's followers become many partition reads, done in parallel."
+    click Lanes href "/docs/08-reliability-and-operations" "Role: separate worker pools by fan-out size, so big posts can't starve small ones.<br/>Trade-off: more pools to size, and a big author's post takes longer to land."
+    click Feed href "/docs/04-caching" "Role: each active user's capped timeline, appended and trimmed in memory.<br/>Trade-off: RAM costs far more than disk, so dormant users are dropped and rebuilt on return."
+    click CelebCache href "/docs/04-caching" "Role: recent posts per celebrity, one copy in every region.<br/>Trade-off: the hottest keys on the platform, read millions of times per second."
+    click Merge href "/docs/06-fanout-and-feeds" "Role: combines precomputed refs with a capped number of celebrity lists.<br/>Trade-off: someone following hundreds of celebrities sees the quieter ones a refresh later."
+```
+
+Same product at 10x the traffic. A 100x jump would mean more daily users than there are people online, so 10x (roughly the largest social apps today) is the realistic next tier. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Daily active users | 300M | ~3B |
+| Posts at peak | 1,500/sec | 15,000/sec |
+| Timeline reads | ~150k/sec | ~1.5M/sec |
+| Feed writes | 10B/day | ~100B/day, ~3.5M/sec at peak |
+| Largest account | 100M followers | ~500M followers |
+| Regions | 1 | ~5 |
+
+**What changes, and the number that forces it**
+
+1. **One region → about five.** At 3B users the audience is everywhere, and a 200ms p99 can't absorb a cross-ocean round trip on every timeline load. Each region serves reads from its own timeline lists and caches. Posts are written in the author's home region, and both the posts table and `post.created` are replicated to every other region. Snowflake IDs already carry datacenter bits, so IDs stay unique without coordination.
+2. **Fan-out runs where the follower lives.** Each region's fan-out consumers read the mirrored topic and only write timelines for followers homed in that region. A post from Tokyo to followers in São Paulo crosses the ocean once, as one event, not as millions of timeline writes.
+3. **The threshold counts active followers.** ~3.5M timeline writes/sec at peak is what breaks first, as the 10x follow-up predicts. Deciding eager vs pull on *active* followers removes most of it, because a dormant follower never gets a row: a 50M-follower account with 2M daily actives fans out like a 2M one.
+4. **Priority lanes by fan-out size.** A post to millions of active followers takes minutes of worker time. Routing authors into lanes by fan-out size, each with its own worker pool, means an ordinary user's post reaches their 200 followers in seconds even while a large post is still fanning out. It's the same bulkhead idea as the notification design.
+5. **Timelines move to capped in-memory lists.** A timeline is only ever appended to, trimmed at 800, and read whole, so a replicated in-memory list store (the shape Twitter ran on Redis) beats Cassandra rows for both writes and reads. Only active users keep a list: ~1B users × 800 refs × ~20 bytes is ~16 TB of RAM before replication, split across regions by where users live. A returning dormant user's timeline is rebuilt from the posts table on first load.
+6. **Follower lists are chunked.** A 500M-follower reverse graph in one partition is a hot, unbounded row. Splitting each list into partitions of ~10k ids lets fan-out workers page through it in parallel and keeps every partition a normal size.
+7. **The read-time merge gets a cap.** Once more accounts sit on the pull side, a user following hundreds of them would merge hundreds of lists per load. The merge takes only the few dozen celebrity lists with the most recent posts, and quieter ones surface on the next refresh of the assembled cache.
+
+**What stays the same**
+
+The hybrid itself: fan-out on write for ordinary authors, merge at read time for large ones. Fan-out writes stay idempotent on `(user_id, post_id)`, pagination stays cursor-based on Snowflake IDs, deletes are still filtered at read time rather than fanned out, and media bytes still come from blob storage and the CDN, never through app servers. At 10x the same split is simply applied per region and per lane.
+
+<!-- /tabs -->
 
 ---

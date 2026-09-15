@@ -115,6 +115,8 @@ location_hist || PK: (driver_id, day) SK: ts || positions || cold path, analytic
 
 ## High-level architecture
 
+<!-- tab: Today · 1.25M pings/s -->
+
 ```mermaid
 flowchart TB
     Drivers([5M driver apps<br/>position every 4s]) --> LocGW[Location Gateway<br/>stateless · sharded by city]
@@ -170,93 +172,6 @@ flowchart TB
     click TripChan href "/docs/05-async-messaging-and-event-driven" "Role: streams the driver's position to the rider during a trip.<br/>Trade-off: dropped updates are acceptable because the next ping replaces them."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
- ═══════════ LOCATION INGEST (1.25M writes/sec) ═══════════
-
-  [Driver apps] ──WS/HTTP──► ┌──────────────────────┐
-     5M devices              │  LOCATION GATEWAY     │ stateless, autoscaled
-     every 4s                │  validate, rate limit │ sharded by city
-                              └──────────┬───────────┘
-                                          │
-                  ┌───────────────────────┴────────────────────┐
-                  │ HOT PATH (synchronous)   COLD PATH (async)  │
-                  ▼                                     ▼
-      ┌────────────────────────────┐        ┌────────────────────────┐
-      │  REDIS GEO INDEX            │        │ Kafka: location.stream │
-      │  per-city sorted set         │        └───────────┬────────────┘
-      │  GEOADD geo:sf driver_123    │                    ▼
-      │  score = geohash(lat,lng)    │        ┌────────────────────────┐
-      │                              │        │ Flink / Spark Streaming │
-      │  ⚠ overwrite, not append —   │        │  → trip replay, ETA     │
-      │    old positions worthless   │        │    models, analytics    │
-      │  TTL 30s → dead drivers      │        └───────────┬────────────┘
-      │    self-evict                │                    ▼
-      └──────────┬─────────────────┘        ┌────────────────────────┐
-                 │                            │ location_hist / S3     │
-                 │                            └────────────────────────┘
-                 │
- ═══════════════ MATCHING ═══════════════
-                 │
-  [Rider] ──POST /rides──► ┌──────────────────────┐
-                            │   RIDE SERVICE        │
-                            │   create trip (state= │
-                            │   REQUESTED)          │
-                            └──────────┬───────────┘
-                                        ▼
-                     ┌──────────────────────────────────────┐
-                     │        MATCHING SERVICE               │
-                     │                                       │
-                     │ 1. GEOSEARCH geo:sf BYRADIUS 3km      │
-                     │      → candidate drivers (geohash     │
-                     │        prefix + 8 NEIGHBOR cells)     │
-                     │                                       │
-                     │ 2. filter: status==available,         │
-                     │      vehicle type, rating, heartbeat  │
-                     │                                       │
-                     │ 3. rank: real ETA (not straight-line) │
-                     │      ──► [Routing / ETA Service]      │
-                     │                                       │
-                     │ 4. ┌──────────────────────────────┐   │
-                     │    │ ACQUIRE LOCK per driver       │   │
-                     │    │ SET lock:driver:123 NX PX 30s │   │
-                     │    │ ← prevents DOUBLE ASSIGNMENT  │   │
-                     │    └──────────────────────────────┘   │
-                     │ 5. offer → wait for accept (15s)      │
-                     │    reject/timeout → release lock,     │
-                     │    try next candidate                 │
-                     └──────────────┬───────────────────────┘
-                                     │ accepted
-                                     ▼
-                     ┌──────────────────────────────────────┐
-                     │  TRIP SERVICE  (state machine)        │
-                     │  REQUESTED→MATCHED→ARRIVING→          │
-                     │  IN_PROGRESS→COMPLETED                │
-                     │  each transition → trip_events (audit)│
-                     └───────┬──────────────────────┬───────┘
-                             │                       │
-                             ▼                       ▼
-                ┌─────────────────────┐   ┌────────────────────────┐
-                │ Kafka: trip.events  │   │  SAGA on completion:    │
-                │  → notifications     │   │   charge → pay driver → │
-                │  → analytics         │   │   receipt               │
-                │  → pricing           │   │  compensations on fail  │
-                └─────────────────────┘   └────────────────────────┘
-
- ═══════════ LIVE TRACKING (rider watches driver) ═══════════
-
-  [Rider WS] ◄── WS GATEWAY ◄── pub/sub channel: trip:{trip_id}
-                                        ▲
-                                        │ throttled to ~1 update/2s
-                            Location Gateway publishes ONLY for
-                            drivers currently on an active trip
-                            (not all 5M drivers — critical filter)
-```
-
-</details>
-
 Two workloads meet in this design: a constant stream of driver positions through the Location Gateway, and rider requests that go through matching and become trips. The Redis geo index is where they connect.
 
 1. A rider's `POST /rides` creates a trip in the Ride Service with state `REQUESTED` and hands it to the Matching Service, which runs GEOSEARCH on the Redis geo index within 3 km, covering the target cell and its 8 neighbours.
@@ -267,5 +182,85 @@ Two workloads meet in this design: a constant stream of driver positions through
 6. Once a driver accepts, the Trip Service runs the state machine from `MATCHED` through `ARRIVING` and `IN_PROGRESS` to `COMPLETED`, records each change in `trips` and `trip_events`, and starts the saga on completion: charge, pay the driver, send the receipt.
 
 The geo index is fed by the location paths. Every 4 seconds a driver's position reaches the Location Gateway, which overwrites that driver's entry synchronously, with a 30-second TTL that doubles as liveness, and sends the ping asynchronously to Kafka `location.stream`. Flink / Spark streaming turns that stream into ETA models and analytics and writes history to `location_hist` in S3. For drivers on an active trip only, the gateway also publishes to `trip:{id}`, throttled to one update every 2 seconds, which the rider's live map subscribes to.
+
+<!-- tab: At 10x · 12.5M pings/s -->
+
+```mermaid
+flowchart TB
+    Drivers([50M driver apps]) -- "persistent connection<br/>2s moving · 15s idle" --> Ingest["Location ingest · per region<br/>one socket per driver<br/>pings in, offers out"]
+    Ingest -- "route by S2 cell" --> CellRouter["Cell router<br/>S2 cell → geo shard<br/>splits cells that get too dense"]
+    CellRouter -- "HOT · synchronous" --> Geo[("Geo shards · per S2 cell<br/>a big metro spans many shards<br/>overwrite · TTL 30s = liveness")]
+    Ingest -- "COLD · async" --> Stream{{"Kafka · location.stream"}}
+    Stream --> Down["Downsampler<br/>on-trip pings at full rate<br/>idle drivers ~1 per minute"]
+    Down --> Hist[("location_hist · columnar<br/>object storage")]
+
+    Rider([Rider]) -- "POST /rides" --> RideSvc[Ride Service<br/>trip state = REQUESTED]
+    RideSvc --> Batch
+
+    subgraph M ["Matching · one matcher per cell"]
+        direction TB
+        Batch["1 · collect the cell's requests<br/>for ~2 seconds"]
+        Cand["2 · candidates from cell + 8 neighbours<br/>may span several geo shards"]
+        Solve["3 · bipartite assignment<br/>for the whole batch at once"]
+        Border["4 · lock only drivers also wanted<br/>by a neighbouring cell's batch"]
+        Batch --> Cand --> Solve --> Border
+    end
+    Geo --> Cand
+    Solve -.-> Routing[Routing / ETA Service]
+
+    Border -- "offer · conditional write<br/>WHERE driver_id IS NULL" --> Trip["Trip Service · state machine"]
+    Trip --> TripStore[("trips + trip_events · Cassandra<br/>each city pinned to a region")]
+    Trip --> Saga["Saga on completion<br/>charge → pay driver → receipt"]
+    Ingest -- "on-trip drivers only<br/>throttled to 1 / 2s" --> TripChan{{"pub/sub · trip:{id}"}}
+    TripChan --> RiderWS([Rider live map])
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class TripStore db
+    class Geo cache
+    class Hist blob
+    class Stream,TripChan queue
+    class Solve hot
+    class Ingest,CellRouter,Geo,Down,Hist,Batch,Cand,Solve,Border scaled
+
+    click Ingest href "/docs/07-apis-and-communication" "Role: holds a persistent connection per driver, carrying pings in and offers out.<br/>Trade-off: stateful, so a node failure reconnects hundreds of thousands of drivers."
+    click CellRouter href "/docs/09-specialized-building-blocks" "Role: maps S2 cells to geo shards and splits cells that get too dense.<br/>Trade-off: a nearby-driver search can now span several shards."
+    click Geo href "/docs/04-caching" "Role: live positions per S2 cell, overwritten on every ping, with TTL as liveness.<br/>Trade-off: in memory and lossy, as today, just split more finely."
+    click Down href "/docs/09-specialized-building-blocks" "Role: keeps on-trip pings at full rate and thins idle ones to about one a minute.<br/>Trade-off: idle-driver history is too coarse for some analyses."
+    click Hist href "/docs/09-specialized-building-blocks" "Role: columnar location history in object storage.<br/>Trade-off: cheap and slow, for analytics only."
+    click Batch href "/docs/03-consistency-and-distributed-systems" "Role: collects a cell's ride requests for about two seconds before matching.<br/>Trade-off: adds up to ~2s before a match is attempted."
+    click Solve href "/docs/09-specialized-building-blocks" "Role: assigns drivers to the whole batch of riders at once.<br/>Trade-off: more compute per round, repaid by better global matches."
+    click Border href "/docs/03-consistency-and-distributed-systems" "Role: locks only drivers that a neighbouring cell's batch also wants.<br/>Trade-off: border drivers can still collide, which costs a retry, never a double assignment."
+    click TripStore href "/docs/02-data-storage" "Role: durable trips and every state change, with each city pinned to a region.<br/>Trade-off: a trip that crosses a region border stays owned by where it started."
+```
+
+Same product at 10x. At 100x there would be 500M drivers online, more than the world's taxi and courier workforce, so 10x (rides, food and parcels on one platform) is the realistic tier. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Drivers online | 5M | 50M |
+| Location pings at a flat 4s | 1.25M/sec | 12.5M/sec |
+| Ride requests | 10k/sec | 100k/sec |
+| Raw location payload | 125 MB/sec | 1.25 GB/sec |
+| Drivers in the densest metro | tens of thousands | hundreds of thousands |
+
+**What changes, and the number that forces it**
+
+1. **Ping rate adapts to what the driver is doing.** At a flat 4-second interval, most of 12.5M writes/sec would come from parked drivers. Drivers on a trip or heading to a pickup ping every 2 seconds, idle and stationary drivers every 15, and the app sends immediately after a large position change. Most online drivers are idle at any moment, so this removes a large share of the writes without making any match worse.
+2. **Persistent connections replace a POST per ping.** At this rate, per-request overhead (TLS, headers, load-balancer work) costs more than the 100-byte payload. Drivers hold one connection to regional ingest, which also pushes trip offers back down the same socket.
+3. **City shards split into S2 cells.** The densest metros now have hundreds of thousands of drivers online, more writes than one Redis sorted set on one node can take. A cell router maps S2 cells to geo shards and splits a cell when it gets too dense, so a search over a cell and its neighbours may touch a few shards. Regional fault isolation still holds, because cells never span regions.
+4. **Matching goes batched, one matcher per cell.** At 100k ride requests/sec, overlapping candidate lists become the norm and most lock attempts collide. Each cell's matcher collects requests for ~2 seconds and solves the batch as one bipartite assignment, the approach from the batched-matching follow-up. That gives better global matches and removes contention inside the cell, since one matcher owns it. Locks are only needed for drivers a neighbouring cell's batch also wants. The cost is up to ~2 seconds added to time-to-match.
+5. **The conditional write is still the arbiter.** `WHERE driver_id IS NULL` on the trip row stays the final word, so a race at a cell border costs a retry and never a double assignment.
+6. **Location history is downsampled.** 1.25 GB/sec of raw pings mostly records cars that aren't moving. On-trip pings are kept at full rate for fares, disputes and ETA training; idle pings are thinned to about one per minute before landing in columnar files in object storage.
+
+**What stays the same**
+
+Current position lives in memory and is overwritten, never appended, with TTL as liveness. Candidates are still ranked by routed ETA rather than straight-line distance, only on-trip drivers publish live position to `trip:{id}`, and trip completion is still a saga with compensations.
+
+<!-- /tabs -->
 
 ---
