@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { BookOpen } from "lucide-react";
+import { useProgressStore } from "@/store/useProgressStore";
 
 /**
  * How far the reader has scrolled through the element with `targetId`:
@@ -44,8 +45,16 @@ function useScrollProgress(targetId: string) {
   return progress;
 }
 
-export function ReadingProgress({ targetId }: { targetId: string }) {
+export function ReadingProgress({ targetId, slug }: { targetId: string; slug: string }) {
   const percent = Math.round(useScrollProgress(targetId) * 100);
+  const setCompleted = useProgressStore((s) => s.setCompleted);
+  const reachedEnd = percent === 100;
+
+  // Fires each time the end is reached, not on every render, so un-marking while still at the end sticks.
+  // The scrollY check skips pages short enough to start at 100%.
+  useEffect(() => {
+    if (reachedEnd && window.scrollY > 0) setCompleted(slug, true);
+  }, [reachedEnd, slug, setCompleted]);
 
   return (
     <div className="rounded border border-rule bg-surface px-4 py-3.5">

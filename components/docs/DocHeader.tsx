@@ -1,6 +1,7 @@
 import { Clock } from "lucide-react";
 import type { DocMeta } from "@/lib/types";
 import { GroupBadge } from "@/components/ui/GroupBadge";
+import { CompleteButton } from "./CompleteButton";
 import { DocTags } from "./DocTags";
 
 /**
@@ -15,6 +16,9 @@ export function DocHeader({ doc, showHardPart = true }: { doc: DocMeta; showHard
         <span className="flex items-center gap-1.5 font-mono text-micro text-inkFaint">
           <Clock className="h-3 w-3" aria-hidden />
           {doc.readingMinutes} min
+        </span>
+        <span className="ml-auto">
+          <CompleteButton slug={doc.slug} />
         </span>
       </div>
 

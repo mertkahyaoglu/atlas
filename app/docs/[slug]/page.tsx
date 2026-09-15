@@ -49,7 +49,7 @@ export default function DocPage({ params }: PageProps) {
 
         <div className="hidden w-toc shrink-0 xl:block">
           <div className="sticky top-20 space-y-8">
-            <ReadingProgress targetId="doc-main" />
+            <ReadingProgress targetId="doc-main" slug={doc.slug} />
             <Toc entries={toc} />
           </div>
         </div>
