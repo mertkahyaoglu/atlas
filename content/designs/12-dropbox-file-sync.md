@@ -28,7 +28,9 @@ requirements:
     - "Sync latency: changes propagate to other devices within seconds"
     - "Durable: never lose a file. Availability high but a failed sync must be retryable, not destructive"
     - "Support large files (GBs) over unreliable connections"
-  outOfScope: "real-time collaborative editing (that's design 15), full-text search of contents."
+  outOfScope:
+    - "Real-time collaborative editing (that's design 15)"
+    - "Full-text search of contents"
 scale:
   numbers: |-
     Users:            500M, avg 3 devices

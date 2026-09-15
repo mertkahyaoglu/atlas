@@ -30,7 +30,9 @@ requirements:
     - "Billing accuracy: exact, reconcilable, auditable"
     - "Must tolerate late-arriving events (mobile offline, retries)"
     - "Must support reprocessing after a bug"
-  outOfScope: "ad serving/auction (a different, latency-critical system), ML click prediction."
+  outOfScope:
+    - "Ad serving/auction (a different, latency-critical system)"
+    - "ML click prediction"
 scale:
   numbers: |-
     Events:       1M/sec → 86B/day

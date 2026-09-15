@@ -28,7 +28,10 @@ requirements:
     - "Remote edit visibility: under ~200ms"
     - "Convergence guaranteed, never silent data loss"
     - "Documents up to ~100k characters with ~50 simultaneous editors"
-  outOfScope: "rich media embedding, comment threads (a separate, simpler subsystem), permissions model details."
+  outOfScope:
+    - "Rich media embedding"
+    - "Comment threads (a separate, simpler subsystem)"
+    - "Permissions model details"
 scale:
   numbers: |-
     Docs:            1B

@@ -26,7 +26,10 @@ requirements:
     - "Handle massive spikes: near-zero traffic, then 100x for 60 seconds at on-sale"
     - "Fair-ish access; not purely \"fastest network wins\""
     - "Availability display can be slightly stale; the *purchase* cannot be"
-  outOfScope: "dynamic pricing, bot detection specifics (mention it matters enormously), secondary market."
+  outOfScope:
+    - "Dynamic pricing"
+    - "Bot detection specifics (mention it matters enormously)"
+    - "Secondary market"
 scale:
   numbers: |-
     Normal traffic:        1,000 req/sec

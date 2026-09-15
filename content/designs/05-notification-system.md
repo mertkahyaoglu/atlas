@@ -31,7 +31,9 @@ requirements:
     - "Never silently drop a notification"
     - "At-least-once delivery with no *visible* duplicates"
     - "Availability over consistency (stale unread count is acceptable)"
-  outOfScope: "ML ranking of notifications, spam classification."
+  outOfScope:
+    - "ML ranking of notifications"
+    - "Spam classification"
 scale:
   numbers: |-
     Events:     5,000/sec avg, 50,000/sec peak (a big repo goes viral, CI storm)

@@ -170,7 +170,7 @@
   }
 
   .doc h2 {
-    @apply text-h2 font-semibold text-ink mt-14 mb-4 pb-2 border-b border-rule scroll-mt-24;
+    @apply text-h2 font-semibold text-ink mt-14 mb-4 scroll-mt-24;
   }
 
   .doc h2:first-child {

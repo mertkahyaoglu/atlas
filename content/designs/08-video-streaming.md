@@ -27,7 +27,10 @@ requirements:
     - "Upload must survive network interruption"
     - "Extremely read-heavy and bandwidth-dominated"
     - "Global audience → latency is physics, must serve from nearby"
-  outOfScope: "DRM specifics, recommendation ML, live streaming (mention how it differs)."
+  outOfScope:
+    - "DRM specifics"
+    - "Recommendation ML"
+    - "Live streaming (mention how it differs)"
 scale:
   numbers: |-
     Uploads:     500 hours of video/minute

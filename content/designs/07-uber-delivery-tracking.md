@@ -27,7 +27,10 @@ requirements:
     - "Location freshness ~5 seconds (stale-but-recent is fine)"
     - "Never double-assign a driver (strong consistency at the assignment point only)"
     - "High availability; a region outage must not take down other regions"
-  outOfScope: "pricing/surge algorithms, routing/ETA computation internals (treat as a service), fraud."
+  outOfScope:
+    - "Pricing/surge algorithms"
+    - "Routing/ETA computation internals (treat as a service)"
+    - "Fraud"
 scale:
   numbers: |-
     Drivers online:     5M

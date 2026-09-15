@@ -27,7 +27,10 @@ requirements:
     - "Millions of ops/sec across the cluster"
     - "Cache is *not* the source of truth — losing it must degrade performance, never correctness"
     - "Node failure must not take down the application tier"
-  outOfScope: "durable persistence (mention it's optional), complex data types, transactions."
+  outOfScope:
+    - "Durable persistence (mention it's optional)"
+    - "Complex data types"
+    - "Transactions"
 scale:
   numbers: |-
     Ops:            10M/sec

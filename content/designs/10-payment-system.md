@@ -29,7 +29,10 @@ requirements:
     - "Strong consistency for balances; eventual consistency acceptable for reporting"
     - "Availability target is high but subordinate to correctness — failing closed is correct here"
     - "PCI-DSS: never store raw card numbers"
-  outOfScope: "fraud scoring models, FX rate sourcing, tax calculation."
+  outOfScope:
+    - "Fraud scoring models"
+    - "FX rate sourcing"
+    - "Tax calculation"
 scale:
   numbers: |-
     Transactions:   10,000/sec peak

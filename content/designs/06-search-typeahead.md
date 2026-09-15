@@ -28,7 +28,9 @@ requirements:
     - "Search p99 < 300ms"
     - "Index freshness: new documents searchable within ~seconds"
     - "Read-heavy, high query volume"
-  outOfScope: "personalization/learned ranking models, image search."
+  outOfScope:
+    - "Personalization/learned ranking models"
+    - "Image search"
 scale:
   numbers: |-
     Documents:    1B

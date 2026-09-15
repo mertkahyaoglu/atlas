@@ -26,7 +26,10 @@ requirements:
     - "Very high availability — a dead shortener breaks every link ever shared"
     - "Codes must not be predictable (enumerable codes leak private links)"
     - "Redirects vastly outnumber creations"
-  outOfScope: "user accounts, link editing, malware scanning (mention it belongs)."
+  outOfScope:
+    - "User accounts"
+    - "Link editing"
+    - "Malware scanning (mention it belongs)"
 scale:
   numbers: |-
     Creates:  100M/day  → 100M / 10^5 = 1,000/sec   (peak 3x = 3,000/sec)

@@ -26,7 +26,9 @@ requirements:
     - "Must not become a single point of failure"
     - "Accurate enough: brief small overshoot acceptable, 10x overshoot not"
     - "Horizontally scalable with the API tier"
-  outOfScope: "DDoS mitigation at L3/L4 (that's upstream, at the CDN/scrubbing layer), billing."
+  outOfScope:
+    - "DDoS mitigation at L3/L4 (that's upstream, at the CDN/scrubbing layer)"
+    - "Billing"
 scale:
   numbers: |-
     1M requests/sec at the edge

@@ -1,4 +1,4 @@
-import { Ban, Check, Crosshair, Gauge, Layers, ListChecks, Ruler, type LucideIcon } from "lucide-react";
+import { Ban, Check, Crosshair, Gauge, Layers, ListChecks, Ruler, X, type LucideIcon } from "lucide-react";
 import { DESIGN_CLOSING_TITLES, DESIGN_OPENING_TITLES, slugifyHeading } from "@/lib/content";
 import type { DesignDetails, DesignTradeoff } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -53,13 +53,19 @@ function ConceptsPanel({ concepts, hardPart }: { concepts: string[]; hardPart: s
   );
 }
 
-function RequirementList({ items, marker }: { items: string[]; marker: "check" | "diamond" }) {
+function RequirementList({ items, marker }: { items: string[]; marker: "check" | "diamond" | "cross" }) {
   return (
     <div role="list" className="space-y-2.5">
       {items.map((item, i) => (
-        <div role="listitem" key={i} className="flex gap-2.5 text-small leading-relaxed text-ink">
+        <div
+          role="listitem"
+          key={i}
+          className={cn("flex gap-2.5 text-small leading-relaxed", marker === "cross" ? "text-inkMuted" : "text-ink")}
+        >
           {marker === "check" ? (
             <Check className="mt-[5px] h-3.5 w-3.5 shrink-0 text-[color:var(--accent)]" aria-hidden />
+          ) : marker === "cross" ? (
+            <X className="mt-[5px] h-3.5 w-3.5 shrink-0 text-inkFaint" aria-hidden />
           ) : (
             <span aria-hidden className="ml-1 mr-0.5 mt-[9px] h-1.5 w-1.5 shrink-0 rotate-45 bg-[color:var(--accent)]" />
           )}
@@ -90,15 +96,12 @@ function RequirementsPanel({ requirements, scale }: Pick<DesignDetails, "require
         </div>
       </div>
 
-      {requirements.outOfScope && (
-        <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-ruleStrong px-5 py-3 sm:flex-row sm:items-baseline sm:gap-4">
-          <span className="flex shrink-0 items-center gap-2 font-mono text-micro uppercase tracking-wide text-inkMuted">
-            <Ban className="h-3.5 w-3.5 text-inkFaint" aria-hidden />
+      {requirements.outOfScope.length > 0 && (
+        <div className="rounded-md border border-dashed border-ruleStrong p-5">
+          <PanelLabel icon={Ban} note="deliberately left out">
             Out of scope
-          </span>
-          <span className="min-w-0 text-small leading-relaxed text-inkMuted">
-            <InlineMarkdown>{requirements.outOfScope}</InlineMarkdown>
-          </span>
+          </PanelLabel>
+          <RequirementList items={requirements.outOfScope} marker="cross" />
         </div>
       )}
 
