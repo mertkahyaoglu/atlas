@@ -81,19 +81,6 @@ sequenceDiagram
     S-->>C: yes, here it is
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Client ──?──► Server  (no)
-   wait 5s
-  Client ──?──► Server  (no)
-   wait 5s
-  Client ──?──► Server  (yes! here it is)
-```
-
-</details>
-
 Simple and works everywhere. Wasteful: most requests return nothing, and latency is up to the polling interval. Fine for low-frequency updates where seconds of delay don't matter.
 
 ### Long polling
@@ -110,16 +97,6 @@ sequenceDiagram
     C->>S: anything new? (reconnect immediately)
     Note over S: held open again
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Client ──?──► Server  ......held open......  ──data──►
-  Client ──?──► Server  ......held open......
-```
-
-</details>
 
 Near-real-time latency without a new protocol. Costs a held connection per client and awkward server resource management. It was the standard pre-WebSocket solution and is still a reasonable fallback.
 
@@ -169,29 +146,6 @@ flowchart TB
     click LB href "/docs/01-foundations" "Role: spreads new socket connections across gateway nodes.<br/>Trade-off: connections are long-lived, so load stays uneven after scaling or restarts."
     click PubSub href "/docs/05-async-messaging-and-event-driven" "Role: carries a message to whichever gateway holds the recipient's socket.<br/>Trade-off: one more hop and failure point, and Redis pub/sub drops messages nobody is subscribed for."
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Users connect to whichever gateway node the LB picks.
-
-  ┌──────────┐  ┌──────────┐  ┌──────────┐
-  │Gateway 1 │  │Gateway 2 │  │Gateway 3 │
-  │ Alice    │  │ Bob      │  │ Carol    │
-  └────▲─────┘  └────▲─────┘  └────▲─────┘
-       └─────────────┼─────────────┘
-              ┌──────────────┐
-              │ Pub/Sub layer │  (Redis pub/sub, Kafka)
-              └──────────────┘
-                     ▲
-              ┌──────────────┐
-              │ Connection    │  user_id -> gateway node
-              │ registry      │  (Redis, with TTL heartbeats)
-              └──────────────┘
-```
-
-</details>
 
 The problem: a backend service wants to send a message to Alice, but has no idea which of fifty gateway nodes holds her connection. The solution is a **connection registry** mapping user to node (refreshed by heartbeat, expired by TTL so dead nodes clean themselves up), plus a pub/sub layer so any service can publish to a user's channel and the right gateway picks it up. Also mention: **offline delivery** — if the user isn't connected, the message must be persisted and delivered on reconnect, which is why you store notifications rather than only pushing them.
 
@@ -249,18 +203,6 @@ flowchart LR
     GW --> Search["Search service"]
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Clients ──► [ API GATEWAY ] ──┬──► Auth service
-                                 ├──► Orders service
-                                 ├──► Users service
-                                 └──► Search service
-```
-
-</details>
-
 Responsibilities it centralizes so individual services don't each reimplement them:
 - TLS termination
 - **Authentication and authorization** (validate the token once, pass verified identity downstream)
@@ -314,21 +256,6 @@ flowchart TB
     Take -- "yes" --> Allowed["allowed"]
     Take -- "no" --> Rejected["rejected"]
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-   refill rate R = 10 tokens/sec
-   ┌──────────────┐
-   │ ● ● ● ● ●    │  capacity B = 50
-   └──────┬───────┘
-          │ each request takes 1 token
-          ▼
-      allowed / rejected
-```
-
-</details>
 
 The important property: it **allows bursts up to the bucket size** while enforcing a long-run average rate. That's usually what you actually want — real traffic is bursty, and clients that have been idle should be allowed to catch up. This is the most widely used algorithm and a good default answer.
 

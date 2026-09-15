@@ -22,24 +22,6 @@ flowchart TB
     Event --> Bob["Bob"] & Carl["Carl"] & Dan["Dan"] & Eve["Eve"] & Fay["Fay"] & More["... 1,000 followers"]
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-      Alice posts
-           │
-           ▼
-   ┌───────────────┐
-   │  1 event      │
-   └───────┬───────┘
-           │  fan-out multiplier = number of followers
-   ┌───┬───┼───┬───┬───┐
-   ▼   ▼   ▼   ▼   ▼   ▼
-  Bob Carl Dan Eve Fay ... (1,000 followers)
-```
-
-</details>
-
 The **fan-out multiplier** is the ratio of downstream deliveries to upstream events. It's the number that determines your entire architecture. With a multiplier of 10, everything is easy. With a multiplier of 100 million (a celebrity posting), naive approaches fall apart.
 
 The core question is always: **when do you do the work of matching events to recipients — at write time or at read time?**
@@ -143,30 +125,6 @@ flowchart TB
     class Check hot
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  ┌──────────────────────────────────────────────────────┐
-  │ Is the author's follower count above threshold T?    │
-  └──────────────┬───────────────────────┬───────────────┘
-                 │ NO                    │ YES (celebrity)
-                 ▼                       ▼
-     FAN-OUT ON WRITE            DO NOT FAN OUT
-     push into each              just store the post once
-     follower's feed             and mark the author "celebrity"
-
-  ─────────────────────────────────────────────────────────
-
-  READ PATH (Bob opens the app):
-     1. Read Bob's precomputed feed        (cheap, one partition)
-     2. Identify which celebrities Bob follows  (usually a handful)
-     3. Pull their recent posts directly   (small scatter-gather)
-     4. Merge the two lists, sort, return
-```
-
-</details>
-
 The insight is that these two costs are inversely distributed. A user follows many ordinary accounts (so precomputing is worth it) but only a few celebrities (so pulling at read time is cheap). The hybrid picks the cheap side of each.
 
 **Details an interviewer may probe:**
@@ -193,30 +151,6 @@ flowchart TB
 
     click Topic href "/docs/05-async-messaging-and-event-driven" "Role: buffers activity events so fan-out workers can scale out and fall behind safely.<br/>Trade-off: feeds become eventually consistent, and ordering holds only within a partition."
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  [ Event source ] ──► Kafka topic "activity.events"
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │  Fan-out workers     │  (horizontally scaled, consumer group)
-                  │                      │
-                  │  1. read event       │
-                  │  2. look up audience │ ◄── subscription service / graph service
-                  │  3. filter (muted,   │
-                  │     prefs, dedupe)   │
-                  │  4. batch write      │
-                  └──────────┬───────────┘
-                             ▼
-                  [ per-user feed store ]
-                    partition key = user_id
-                    sort key      = timestamp
-```
-
-</details>
 
 Design points worth stating:
 

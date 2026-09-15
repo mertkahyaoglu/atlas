@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { buildToc, designToc, getAllDocs, getDoc, getSiblings, toMeta } from "@/lib/content";
+import { buildToc, designToc, getAllDocs, getAllMeta, getDoc, getSiblings, toMeta } from "@/lib/content";
+import { DocTitlesProvider } from "@/components/docs/diagram/DocTitles";
 import { splitTabs } from "@/lib/tabs";
 import { accentVar, cn } from "@/lib/utils";
 import { TopBar } from "@/components/layout/TopBar";
@@ -33,6 +34,8 @@ export default function DocPage({ params }: PageProps) {
   const designSections = doc.design ? designToc(doc.design) : { opening: [], closing: [] };
   const toc = [...designSections.opening, ...buildToc(doc.content), ...designSections.closing];
   const { prev, next } = getSiblings(doc.slug);
+  // Lets a diagram node's dialog name the concept module it links to.
+  const titles = Object.fromEntries(getAllMeta().map((meta) => [meta.slug, meta.title]));
 
   return (
     <div style={accentVar(doc.group)}>
@@ -41,17 +44,19 @@ export default function DocPage({ params }: PageProps) {
       <div className="mx-auto flex max-w-shell gap-12 px-4 pb-24 pt-10 sm:px-8">
         <main id="doc-main" className="min-w-0 flex-1">
           <DocHeader doc={toMeta(doc)} showHardPart={!doc.design} />
-          <article className={cn("doc", doc.group === "design" && "doc-design")}>
-            {doc.design && <DesignOverview design={doc.design} />}
-            {splitTabs(doc.content).map((segment, i) =>
-              segment.kind === "tabs" ? (
-                <ContentTabs key={i} tabs={segment.tabs} />
-              ) : (
-                <Markdown key={i} content={segment.content} />
-              ),
-            )}
-            {doc.design && <DesignDeepDives design={doc.design} />}
-          </article>
+          <DocTitlesProvider titles={titles}>
+            <article className={cn("doc", doc.group === "design" && "doc-design")}>
+              {doc.design && <DesignOverview design={doc.design} />}
+              {splitTabs(doc.content).map((segment, i) =>
+                segment.kind === "tabs" ? (
+                  <ContentTabs key={i} tabs={segment.tabs} />
+                ) : (
+                  <Markdown key={i} content={segment.content} />
+                ),
+              )}
+              {doc.design && <DesignDeepDives design={doc.design} />}
+            </article>
+          </DocTitlesProvider>
           <PrevNext prev={prev} next={next} />
         </main>
 

@@ -46,27 +46,6 @@ flowchart TB
     class Choice hot
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-     Normal operation: you get C and A both.
-
-     Partition occurs:
-     ┌──────────┐   ╳╳╳   ┌──────────┐
-     │ Node A   │ ╳╳╳╳╳╳╳ │ Node B   │
-     └──────────┘   ╳╳╳   └──────────┘
-          │                    │
-   Client writes to A    Client reads from B
-
-   CP choice: B refuses to answer (it can't know if it's stale)
-              -> consistent, but unavailable
-   AP choice: B answers with possibly-stale data
-              -> available, but inconsistent
-```
-
-</details>
-
 **How to use this in an interview:** don't recite the theorem. Make the choice and justify it from product requirements.
 
 - *"For the notification inbox I'd choose AP. Showing a slightly stale unread count for two seconds is invisible to users; refusing to load the page is not."*
@@ -205,23 +184,6 @@ sequenceDiagram
     S-->>C: stored result, card NOT charged again
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Client                        Server
-    │  POST /charge                │
-    │  Idempotency-Key: abc-123    │
-    ├─────────────────────────────►│  key unseen -> execute, store result
-    │        (response lost)       │
-    │  POST /charge   [retry]      │
-    │  Idempotency-Key: abc-123    │
-    ├─────────────────────────────►│  key seen -> return stored result,
-    │◄─────────────────────────────┤  do NOT charge again
-```
-
-</details>
-
 2. **Natural idempotency by design.** Prefer "set state to X" over "increment." Prefer "ensure this row exists" (upsert) over "insert."
 3. **Deduplication on consume.** Message queues deliver at-least-once, so consumers store processed message IDs and skip duplicates. The dedupe store needs a TTL so it doesn't grow forever.
 
@@ -252,24 +214,6 @@ sequenceDiagram
     Co->>B: commit
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Coordinator          ServiceA          ServiceB
-      │   prepare?         │                 │
-      ├───────────────────►│                 │
-      ├────────────────────┼────────────────►│
-      │   yes              │                 │
-      │◄───────────────────┤                 │
-      │◄───────────────────┼─────────────────┤
-      │   commit           │                 │
-      ├───────────────────►│                 │
-      ├────────────────────┼────────────────►│
-```
-
-</details>
-
 **Why it's avoided in practice:** it's a **blocking** protocol. Between "yes" and "commit," each participant holds locks and cannot proceed independently. If the coordinator dies in that window, participants are stuck holding locks indefinitely. Availability of the whole system becomes the product of every participant's availability. It's rarely the right call across service boundaries.
 
 ### The saga pattern
@@ -285,18 +229,6 @@ flowchart TB
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Car hot
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Book flight  ──ok──►  Book hotel  ──ok──►  Book car  ──FAIL
-       │                     │
-       │                     └── compensate: cancel hotel
-       └── compensate: cancel flight
-```
-
-</details>
 
 You give up atomicity and isolation. There are intermediate states where the flight is booked but the hotel isn't, and other transactions can observe them. In exchange you get availability and no distributed locking. Compensations must themselves be idempotent and retryable.
 

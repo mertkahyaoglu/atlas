@@ -58,38 +58,6 @@ flowchart TB
     click DB href "/docs/02-data-storage" "Role: the source of truth every other component ultimately depends on.<br/>Trade-off: the hardest part to scale, because writes can't simply be copied across machines."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                    ┌──────────┐
-   [Browser/App] ───│   DNS    │  "where does api.example.com live?"
-        │           └──────────┘
-        │  HTTPS request
-        v
-   ┌─────────────┐
-   │ Load        │   spreads traffic across many identical servers
-   │ Balancer    │
-   └──────┬──────┘
-          │
-    ┌─────┴─────┬───────────┐
-    v           v           v
- [App srv 1] [App srv 2] [App srv 3]     <- the "stateless" tier
-    │           │           │
-    └─────┬─────┴───────────┘
-          v
-   ┌─────────────┐      ┌──────────┐
-   │  Cache      │      │  Queue   │  -> [background workers]
-   │  (Redis)    │      │  (Kafka) │
-   └──────┬──────┘      └──────────┘
-          v
-   ┌─────────────┐
-   │  Database   │  <- the "stateful" tier, the hard part
-   └─────────────┘
-```
-
-</details>
-
 **The key insight:** the app servers are easy. You can add a hundred of them in an afternoon. Everything hard in system design lives in the boxes that hold state — the database, the cache, the queue — because state can't simply be duplicated without raising questions about which copy is correct.
 
 ---

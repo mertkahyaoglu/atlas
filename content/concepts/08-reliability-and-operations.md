@@ -100,24 +100,6 @@ flowchart TB
     class OPEN hot
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-        failures exceed threshold
-   CLOSED ─────────────────────────► OPEN
-   (calls                            (calls fail immediately,
-    pass                              dependency gets a rest)
-    through)                              │
-      ▲                                   │ after cooldown
-      │                                   ▼
-      │        success              HALF-OPEN
-      └──────────────────────────  (let a few trial
-             (failure → OPEN)       calls through)
-```
-
-</details>
-
 - **Closed**: normal. Requests flow; failures are counted.
 - **Open**: the failure rate crossed a threshold. Requests fail instantly without attempting the call. This does two things: your own threads stop piling up waiting, and the struggling dependency gets relief instead of being hammered by a service that refuses to give up.
 - **Half-open**: after a cooldown, allow a small number of probe requests. If they succeed, close; if they fail, open again.
