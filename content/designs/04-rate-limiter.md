@@ -231,4 +231,14 @@ flowchart TB
 
 </details>
 
+Limits are enforced in two layers inside the API gateway fleet: an L1 local bucket in every gateway, and a Redis cluster that holds the shared count. Volumetric attacks are dropped before traffic reaches either layer.
+
+1. Client traffic first passes CDN L3/L4 scrubbing, and the Load balancer spreads what is left across the gateways.
+2. The gateway finds the rule for the caller's identity and endpoint in its local copy of the Config service rules.
+3. It checks the caller's L1 local bucket in memory, with no network call.
+4. Every N requests or X milliseconds, the L2 batched sync reconciles that bucket with the Redis cluster, which is sharded by identity. A Lua script there runs the check-and-decrement atomically in one round trip, so every gateway works from the same global count.
+5. If the bucket, as of its last sync, has a token, the request is allowed and goes to Backend services. If not, the gateway returns 429 Too Many Requests with `Retry-After` and the `X-RateLimit-*` headers.
+
+Two flows run beside the request path. The Config service distributes rule changes to the gateways, which cache them and fall back to safe defaults when it is unreachable, so a limit can change without a deploy. The dotted edge from Redis to Backend services is the failure path: when Redis is unreachable, gateways keep enforcing their local buckets, let traffic through, and log and alert.
+
 ---

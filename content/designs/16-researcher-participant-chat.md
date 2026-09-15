@@ -289,4 +289,14 @@ flowchart TB
 
 </details>
 
+Everything durable lives in Postgres. The WS gateways hold sockets, Redis rings the recipient's gateway and holds rate-limit buckets, and the remaining boxes are side flows that read or write the same database.
+
+1. The participant sends a frame over WSS to WS gateway #1, which forwards it to the Chat service. The gate rejects the send with 429 if the sender's rate-limit bucket in Redis is empty, and with 409 unless the conversation is open, still before `writable_until`, and not blocked.
+2. In one transaction, the Chat service inserts the message and a `notification_outbox` row, deduping on `client_msg_id`.
+3. It commits, and only then acks `sent` to the participant with the new `message_id`.
+4. It publishes to the recipient's Redis channel, `user:<id>`.
+5. Redis delivers the publish to the subscribed gateway, WS gateway #3, which pushes the message to the researcher over WSS with the participant's alias only.
+
+The side flows all meet at Postgres. The lifecycle consumer applies study service events to conversation state, guarded by `study_version`. The notifier worker drains the outbox into an email or push that carries a link but no message body. The staff console writes an audit row before each ticket-scoped read. Retention + erasure clears expired message bodies and attachment objects unless `legal_hold` is set, and attachments reach object storage through a presigned PUT into quarantine.
+
 ---

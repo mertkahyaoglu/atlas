@@ -275,4 +275,14 @@ flowchart TB
 
 </details>
 
+Every event enters through one ingest path and then splits in two: a hot path in Flink produces approximate numbers within seconds, and a cold path recomputes exact numbers from the raw archive overnight. Both write to the same OLAP store.
+
+1. Ad servers fire events at the regional ingest gateway without waiting for a reply. The gateway validates them, adds geo and device, stamps a receive time next to the event time, and writes to Kafka `ad.events`, partitioned by `ad_id`. Flink consumes the topic and dedupes on `event_id` first.
+2. Event-time windowing puts each event in a tumbling 1-minute bucket by when it happened, not when it arrived.
+3. The watermark, `max_event_time − δ`, decides when a bucket closes. Flink emits the bucket once the watermark passes its end, emits an update for a late event still within the grace period, and sends anything later to a side output.
+4. Aggregation adds up counts and builds HyperLogLog sketches for unique counts, then writes the fast, approximate rows to the OLAP store.
+5. The query service reads the OLAP store for dashboards, reports and the billing export, and caches recent windows in Redis.
+
+The cold path reads the same topic. Raw events are archived as Parquet in object storage, partitioned by date and hour, and outlive Kafka's 7-day retention. Each night, reconciliation recomputes yesterday from the archive and overwrites the stream estimates in the OLAP store with the exact figures billing uses. In parallel, the fraud filter reads `ad.events` and flags suspicious clicks for that nightly run instead of deleting them.
+
 ---

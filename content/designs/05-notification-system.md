@@ -266,4 +266,15 @@ flowchart TB
 
 </details>
 
+Events pass through two Kafka topics: `activity.events` feeds the Fan-out service, and `delivery.jobs` feeds delivery workers that are bulkheaded per provider. The notifications store and the Read API sit beside that pipeline as each user's inbox.
+
+1. The PR Service, CI Service, Comments and Issues publish to Kafka `activity.events`, partitioned by `entity_id`. The Fan-out service consumes it and resolves the audience: watchers, mentions and participants.
+2. It checks whether the event belongs to a celebrity repo with more than 100k watchers. If it does, the service writes nothing per user and marks the event for read-time merge.
+3. For every other event, it filters the audience by mutes and preferences.
+4. It collapses duplicates, so ten likes become one "10 people liked your post" notification.
+5. It makes one batched, idempotent write keyed by `user_id` and `event_id` to the notifications store, and puts one job per channel on Kafka `delivery.jobs`.
+6. The In-app worker, Push worker and Email worker each take their own jobs. The in-app worker sends through Redis pub/sub to the WS gateway, the push worker checks quiet hours before calling APNs / FCM, and the email worker buffers digests before calling the SMTP provider.
+
+Failed provider calls go to the retry stage, which backs off exponentially with jitter behind a circuit breaker per provider. Jobs that run out of attempts land in the dead letter queue, which alerts on depth and is replayed after a fix. On the read side, the Read API pages through the notifications store by cursor, merges celebrity-repo events at read time, and takes badge counts from the Redis unread counters.
+
 ---

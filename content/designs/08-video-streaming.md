@@ -275,4 +275,19 @@ flowchart TB
 
 </details>
 
+Metadata and bytes take different routes. The Upload Service handles only metadata and upload URLs, while the video itself goes from the creator to object storage, through a transcoding DAG, and out to viewers from CDN edges.
+
+1. The creator posts the video's metadata, and nothing else, to the Upload Service.
+2. The Upload Service returns a presigned multipart URL.
+3. The creator uploads the file directly to object storage under `raw/`, in parts that can each be retried and resumed.
+4. The completed upload emits an event to Kafka `video.uploaded`, and the Orchestrator runs the transcoding pipeline as a job DAG state machine:
+   1. Inspect the codec, duration and tracks.
+   2. Split the source into chunks of about 10 seconds on keyframe boundaries.
+   3. Transcode each chunk into each rendition, from 240p to 4K in H.264 and AV1, on spot instances.
+   4. Run the side jobs: thumbnails, audio, captions and moderation.
+   5. Package HLS / DASH segments and a master manifest.
+5. The packaged output is written to object storage under `processed/`, and the video's status becomes `READY`.
+
+Playback runs the other way, and it doesn't touch the app servers either. The player requests segments from a CDN edge such as London, Tokyo or São Paulo, and the edges serve over 95% of all bytes. On a miss, an edge pulls the segment from the Origin, which exists only to serve those misses from `processed/`. The player measures throughput and buffer depth to choose the bitrate of each next segment, and sends view events asynchronously to Kafka and Flink for view counts, watch time and QoE.
+
 ---

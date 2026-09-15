@@ -276,4 +276,12 @@ flowchart TB
 
 </details>
 
+Buyers reach the application only through the virtual waiting room, which queues arrivals in a Redis sorted set under signed queue tokens and admits them at a controlled rate, about 1,000 per second, each for roughly 10 minutes. Behind the API Gateway, admitted users browse a deliberately stale Redis seat map and book against the Primary DB, which is sharded by event.
+
+1. With a valid queue token, the API Gateway passes a hold request to the booking path. The transaction locks the chosen seats with `SELECT … FOR UPDATE`, taking the locks in sorted order. If every seat is still `AVAILABLE`, it marks them `HELD` with `held_by` and `expires_at`, inserts the hold and commits. If any seat is gone, it rolls back and returns 409 with nearby alternatives.
+2. Within the 10-minute hold, checkout runs as a saga that verifies the hold, charges the buyer, marks the seats `SOLD` and issues tickets.
+3. Every seat change in the Primary DB is published to Kafka `seat.events`, which invalidates the cached seat map and pushes live seat updates over WebSocket.
+
+The browse path never takes a lock. Seat maps come from the CDN as static pages and from the Redis seat map, which has a TTL of 2-5 seconds and is refreshed by those seat events. Beside the booking path, the hold expiry sweeper scans the Primary DB and returns seats from expired holds to `AVAILABLE`.
+
 ---

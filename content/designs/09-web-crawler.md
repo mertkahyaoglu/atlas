@@ -270,4 +270,16 @@ flowchart TB
 
 </details>
 
+The crawler is a loop around the URL Frontier: URLs leave it, pages are fetched and parsed, and new links go back in. Politeness lives inside the frontier, and duplicates are caught twice, once by content and once by URL.
+
+1. Seed URLs enter the front queues, which order work by priority (Q1 high for news and homepages, Q2 medium, Q3 low) through a weighted selector.
+2. URLs then move to the back queues, one per host. A heap keyed by `next_allowed_fetch_time` lets a worker pop a URL only when its host is ready.
+3. Consistent hashing by domain sends all of a host's URLs to the same node in the fetcher fleet, which reads the robots.txt cache for rules and crawl-delay, and the DNS cache for addresses.
+4. The fetcher makes the HTTP request with a timeout, a size cap and a redirect limit, and sends ETag / If-Modified-Since so an unchanged page costs only a 304.
+5. Content dedupe checks a checksum for exact duplicates and a simhash for near duplicates, and the page is written to the page store as compressed HTML.
+6. The parser / link extractor pulls out links and normalizes each URL: lowercase host, strip fragment, sort query params, resolve relative paths.
+7. The Bloom filter checks every normalized URL. A URL that is definitely not seen goes back into the front queues, and one that is probably seen is discarded.
+
+Two jobs feed the frontier from the side. Trap detection enforces a maximum depth and a per-domain cap and catches calendar and session-id patterns, so runaway URL spaces don't flood the queues. The recrawl scheduler estimates how often each page changes and puts it back into the front queues at its `next_crawl_at`.
+
 ---

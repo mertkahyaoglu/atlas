@@ -240,4 +240,15 @@ flowchart TB
 
 </details>
 
+The shortener is two paths joined by one Redis cluster: a write path at about 1k requests per second that creates links, and a read path at about 100k that redirects them. A separate analytics pipeline hangs off the redirect.
+
+1. A client's `POST /v1/urls` passes the API Gateway, which applies auth and an abuse rate limit, and reaches the Shorten Service.
+2. ID generation takes the next number from a range of 10,000 that the ticket server handed out, scrambles it, and encodes it as a base62 `short_code`.
+3. The urls store saves the row with a conditional write on `short_code`, and write-through copies the mapping from code to `long_url` into the Redis cluster.
+4. Later, a browser's `GET /{code}` goes through the Load balancer to the Redirect Service, which is stateless and autoscaled and looks the code up in the Redis cluster.
+5. About 95% of lookups hit and return 302 Found straight away. The other 5% read the urls store read replicas, populate the cache, and then return the 302.
+6. The browser follows the redirect to the destination site.
+
+Every 302 also fires a click event to Kafka and returns without waiting for it. A stream processor groups those events into tumbling windows and writes to two places: `clicks_agg`, which serves the stats API, and the data warehouse, which keeps raw analytics.
+
 ---

@@ -258,4 +258,15 @@ flowchart TB
 
 </details>
 
+There is no proxy tier: a smart client library inside each application server routes every request straight to a cache node. The origin database sits behind the nodes and is only read on a miss.
+
+1. The application calls the smart client, which hashes the key, such as `user:1234`, against its own copy of the ring. Before that, it can answer the hottest keys from its optional tiny L1 cache.
+2. On the consistent hashing ring, the key belongs to the first node clockwise from its hash. Every physical node sits at about 150 virtual node positions, so keys spread evenly and a resize remaps only about 1/N of them.
+3. The client connects directly to that node, with no proxy hop in between.
+4. The node finds the key in its hash map and moves the entry to the front of its LRU list, both in O(1). It runs commands on a single thread and evicts from the tail of the list when memory is full.
+5. On a hit, the value goes straight back to the client.
+6. On a MISS, the value is read from the origin database and SET back into the same node, so the next read for that key hits.
+
+Two flows run beside the request path. Each node streams writes asynchronously to its own replica, and membership uses gossip in the SWIM style, moving a node through suspicion and confirmation before declaring it dead and changing the ring the clients use. The stampede, penetration and avalanche failure modes all surface at the miss path, as extra load on the origin database.
+
 ---
