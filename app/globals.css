@@ -43,6 +43,19 @@
   --tone-violet: #6d4fd1;
   --tone-violet-soft: rgba(109, 79, 209, 0.08);
   --tone-violet-line: rgba(109, 79, 209, 0.35);
+
+  /* Diagram node kinds that have no status tone of their own. */
+  --tone-teal: #0f8a8e;
+  --tone-pink: #b3368a;
+  --tone-yellow: #94750a;
+
+  /* Diagram canvas. */
+  --flow-canvas: #f7f9fb;
+  --flow-node: #ffffff;
+  --flow-cluster: rgba(194, 204, 216, 0.16);
+  --flow-edge: #97a3b4;
+  --flow-dot: #d5dce5;
+  --flow-shadow: 0 1px 2px rgba(22, 32, 44, 0.06);
 }
 
 .dark {
@@ -74,6 +87,17 @@
   --tone-violet: #ad94f7;
   --tone-violet-soft: rgba(173, 148, 247, 0.1);
   --tone-violet-line: rgba(173, 148, 247, 0.35);
+
+  --tone-teal: #38bdc1;
+  --tone-pink: #e066b2;
+  --tone-yellow: #e6c43c;
+
+  --flow-canvas: #121922;
+  --flow-node: #19222e;
+  --flow-cluster: rgba(29, 39, 52, 0.45);
+  --flow-edge: #56657a;
+  --flow-dot: #222d3a;
+  --flow-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 @layer base {
@@ -258,9 +282,9 @@
   }
 }
 
-/* Mermaid injects its own <svg>; keep its type in the app's mono face. Centred
-   with margins rather than flex, so a zoomed chart overflows to the right and
-   stays scrollable instead of being clipped on the left. */
+/* Mermaid (sequence and ER diagrams) injects its own <svg>; keep its type in
+   the app's mono face. Centred with margins rather than flex, so a zoomed chart
+   overflows to the right and stays scrollable instead of being clipped on the left. */
 .mermaid-host svg {
   display: block;
   margin-inline: auto;
@@ -269,69 +293,332 @@
   font-family: var(--font-mono), monospace !important;
 }
 
-/* Nodes with a `click` tooltip light up on hover; linked ones show a pointer.
-   classDef styles are inline and !important, so they can win the stroke; the
-   glow is a filter on the group and applies either way. */
-.mermaid-host .node {
-  transition: filter 120ms ease;
-}
-.mermaid-host .node :is(rect, polygon, circle, ellipse, path) {
-  transition: stroke 120ms ease;
-}
-.mermaid-host .node[title]:hover {
-  filter: drop-shadow(0 0 4px var(--accent));
-}
-.mermaid-host .node[title]:hover :is(rect, polygon, circle, ellipse, path) {
-  stroke: var(--accent) !important;
-}
-.mermaid-host .node.clickable {
-  cursor: pointer;
-}
-/* Linked nodes are wrapped in <a>; the prose link underline doesn't belong there. */
-.doc .mermaid-host a {
-  text-decoration: none;
+/* ---------------------------------------------------------------------------
+   Flowcharts, drawn with React Flow. Box padding, icon size and type sizes
+   here match METRICS in lib/diagram/layout.ts, which sizes every box by
+   counting characters: change one and change the other.
+--------------------------------------------------------------------------- */
+
+.flow-figure {
+  /* Declared here, not on :root, so it resolves against this page's accent. */
+  --flow-edge-active: var(--accent, var(--concept));
+  background: var(--flow-canvas);
 }
 
-/* Mermaid appends its tooltip to <body>, outside the diagram's scoped styles,
-   and positions it at the bottom centre of the hovered node. */
-.mermaidTooltip {
-  position: absolute;
-  z-index: 50;
-  max-width: min(20rem, calc(100vw - 2rem));
-  transform: translate(-50%, 6px);
-  padding: 0.375rem 0.625rem;
-  border: 1px solid var(--rule-strong);
-  border-radius: 4px;
-  background: var(--raised);
-  color: var(--ink);
-  font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 0.75rem;
-  line-height: 1.125rem;
-  text-align: left;
+.flow-frame {
+  background: var(--flow-canvas);
+}
+
+.flow-canvas.react-flow {
+  --xy-background-color: var(--flow-canvas);
+  background: var(--flow-canvas);
+}
+
+.flow-canvas .react-flow__attribution {
+  background: transparent;
+  font-size: 9px;
+}
+.flow-canvas .react-flow__attribution a {
+  color: var(--ink-faint);
+}
+
+/* React Flow sets pointer events inline once nodes have handlers; a group is
+   only a backdrop and shouldn't take hover from what's behind it. */
+.flow-canvas .react-flow__node-cluster {
+  pointer-events: none !important;
+}
+
+.flow-handle.react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
   pointer-events: none;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
 }
 
-/* Collapsed <details> blocks in doc prose (the concept modules' plain-text diagram fallbacks). */
-@layer components {
-  .doc details {
-    @apply my-6 max-w-none rounded border border-rule bg-surface;
-  }
+.flow-node {
+  --tone: var(--ink-faint);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--tone) 55%, var(--rule));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone) 10%, var(--flow-node));
+  color: var(--ink);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-align: left;
+  box-shadow: var(--flow-shadow);
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 160ms ease;
+}
+.flow-node.is-neutral {
+  border-color: var(--rule-strong);
+  background: var(--flow-node);
+}
+.flow-node:hover,
+.flow-node.is-active {
+  border-color: var(--tone);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--tone) 22%, transparent),
+    var(--flow-shadow);
+}
+.flow-node.is-neutral:hover,
+.flow-node.is-neutral.is-active {
+  border-color: var(--ink-muted);
+}
+.flow-node.is-dimmed {
+  opacity: 0.4;
+}
+.flow-node.is-scaled {
+  border-style: dashed;
+}
+.flow-node.is-hot {
+  border-color: var(--tone-amber);
+  box-shadow:
+    0 0 0 1px var(--tone-amber),
+    0 0 22px -6px var(--tone-amber),
+    var(--flow-shadow);
+}
+.flow-node.is-hot:hover,
+.flow-node.is-hot.is-active {
+  box-shadow:
+    0 0 0 1px var(--tone-amber),
+    0 0 0 4px color-mix(in srgb, var(--tone-amber) 25%, transparent),
+    var(--flow-shadow);
+}
 
-  .doc details > summary {
-    @apply cursor-pointer select-none px-4 py-2.5 text-tiny text-inkMuted transition-colors duration-fast hover:text-ink;
-  }
+.flow-node--pill {
+  border-radius: 999px;
+  padding-inline: 18px;
+}
 
-  .doc details[open] > summary {
-    @apply border-b border-rule text-ink;
-  }
+.flow-node__icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+  color: var(--tone);
+}
+.flow-node.is-neutral .flow-node__icon {
+  background: var(--raised);
+  color: var(--ink-muted);
+}
+.flow-node__icon svg {
+  width: 14px;
+  height: 14px;
+}
+/* A decision's icon sits in a diamond, echoing the flowchart shape. */
+.flow-node--decision .flow-node__icon {
+  transform: rotate(45deg) scale(0.82);
+  border-radius: 4px;
+}
+.flow-node--decision .flow-node__icon svg {
+  transform: rotate(-45deg) scale(1.1);
+}
 
-  .doc details > *:not(summary) {
-    @apply px-4;
-  }
+.flow-node__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.flow-node__title {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: pre;
+}
+.flow-node__detail {
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: pre;
+}
 
-  .doc details > div:last-child,
-  .doc details > pre:last-child {
-    @apply pb-4;
+.flow-node__badge {
+  position: absolute;
+  top: -8px;
+  right: 10px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--tone-amber);
+  color: var(--flow-canvas);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* This node has notes of its own in the detail dialog. */
+.flow-node__notes {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--tone);
+}
+.flow-node.is-neutral .flow-node__notes {
+  background: var(--ink-faint);
+}
+
+.flow-edge {
+  stroke: var(--flow-edge);
+  stroke-width: 1.25;
+  transition:
+    stroke 120ms ease,
+    opacity 160ms ease;
+}
+.flow-edge--dotted {
+  stroke-dasharray: 2 3;
+}
+.flow-edge--thick {
+  stroke-width: 2.25;
+}
+.flow-edge.is-active {
+  stroke: var(--flow-edge-active);
+  stroke-width: 1.75;
+  stroke-dasharray: 6 4;
+  animation: flow-dash 700ms linear infinite;
+}
+.flow-edge--dotted.is-active {
+  stroke-dasharray: 2 3;
+}
+.flow-edge.is-dimmed {
+  opacity: 0.2;
+}
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -10;
   }
+}
+
+.flow-edge-label {
+  position: absolute;
+  padding: 2px 6px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--flow-canvas);
+  color: var(--ink-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 15px;
+  text-align: center;
+  white-space: pre;
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+.flow-edge-label.is-active {
+  border-color: var(--flow-edge-active);
+  color: var(--ink);
+}
+.flow-edge-label.is-dimmed {
+  opacity: 0.3;
+}
+
+.flow-cluster {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--flow-cluster);
+}
+.flow-cluster__title {
+  position: absolute;
+  top: 7px;
+  left: 12px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 14px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.flow-cluster__note {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+/* The node detail dialog. It is portalled to <body>, so it reads theme tokens
+   but not the page's accent; `--tone` is the node kind's colour. */
+.flow-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: min(42rem, calc(100vh - 2rem));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 24px 64px -12px rgb(0 0 0 / 0.5);
+}
+.flow-dialog::backdrop {
+  background: rgb(6 10 16 / 0.6);
+  backdrop-filter: blur(2px);
+}
+.flow-dialog[open] {
+  animation: flow-dialog-in 160ms ease-out;
+}
+@keyframes flow-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+.flow-dialog__header {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--tone) 12%, transparent), transparent);
+}
+.flow-dialog__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tone);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.flow-dialog__kind::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--tone);
+}
+.flow-dialog__flag {
+  padding: 0 6px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: 3px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.flow-dialog__flag--hot {
+  border: 1px solid var(--tone-amber);
+  color: var(--tone-amber);
 }

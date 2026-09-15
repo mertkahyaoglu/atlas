@@ -46,27 +46,6 @@ flowchart TB
     Browser --> CDN --> Proxy --> AppC --> Dist --> DBC --> Origin
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-[Browser cache]        in the user's browser; zero network cost
-      │
-[CDN / edge cache]     geographically near the user
-      │
-[Reverse proxy cache]  in front of your app servers (Nginx, Varnish)
-      │
-[Application cache]    in-process memory of the app server itself
-      │
-[Distributed cache]    shared Redis/Memcached cluster
-      │
-[Database cache]       the DB's own buffer pool / query cache
-      │
-[Origin storage]       disk
-```
-
-</details>
-
 Each layer closer to the user is faster but harder to invalidate — you cannot reach into a user's browser and delete something. This is why cache TTLs get shorter as you move toward the origin, and why you use content hashing in filenames (`app.a3f9c2.js`) for browser-cached assets: instead of invalidating, you change the URL.
 
 ### Local (in-process) vs distributed cache

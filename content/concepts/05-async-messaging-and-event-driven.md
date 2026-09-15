@@ -25,16 +25,6 @@ flowchart TB
     Analytics --> Resp(["respond after ~3 s"])
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  User ──► API ──► Charge card ──► Send email ──► Update analytics ──► respond
-          (user waits for ALL of this: ~3 seconds)
-```
-
-</details>
-
 Three problems here:
 1. **Latency** — the user waits for work they don't care about (analytics).
 2. **Coupling of availability** — if the email service is down, the entire purchase fails. Per Module 1's availability math, every synchronous dependency multiplies down your availability ceiling.
@@ -52,19 +42,6 @@ flowchart LR
     Topic --> AW["Analytics worker"]
     Topic --> IW["Inventory worker"]
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  User ──► API ──► Charge card ──► publish "order.placed" ──► respond (200ms)
-                                          │
-                                          ├──► Email worker
-                                          ├──► Analytics worker
-                                          └──► Inventory worker
-```
-
-</details>
 
 Now the user waits only for what's essential. The email service being down delays emails; it doesn't break checkout. And a spike queues up instead of overwhelming workers.
 
@@ -90,17 +67,6 @@ flowchart LR
     Q -- "m3" --> WC["Worker C"]
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  Producer ──► [ m1 m2 m3 m4 m5 ] ──┬──► Worker A  (gets m1, m4)
-                                     ├──► Worker B  (gets m2, m5)
-                                     └──► Worker C  (gets m3)
-```
-
-</details>
-
 Purpose: **distributing work**. Adding workers increases throughput. Examples: RabbitMQ, AWS SQS, Celery.
 
 ### Publish/subscribe (fan-out, broadcast)
@@ -116,17 +82,6 @@ flowchart LR
 
     click Se href "/docs/09-specialized-building-blocks" "Role: consumes order events to keep the search index up to date.<br/>Trade-off: search results lag the database by however far behind this consumer is."
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                          ┌──► Email service      (gets m1)
-  Publisher ──► [ m1 ] ───┼──► Analytics service  (gets m1)
-                          └──► Search indexer     (gets m1)
-```
-
-</details>
 
 Purpose: **notifying multiple independent consumers**. The publisher doesn't know or care who's listening, which is the decoupling benefit. Examples: Redis pub/sub, AWS SNS, Google Pub/Sub, and Kafka (via consumer groups).
 
@@ -235,19 +190,6 @@ flowchart LR
     class DLQ hot
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  main queue ──► worker ──fail──► retry ──fail──► retry ──fail──► [ DLQ ]
-                                                                     │
-                                                          human/automated
-                                                          inspection, fix,
-                                                          and replay
-```
-
-</details>
-
 Why it exists: without a DLQ, a single "poison pill" message (one that crashes the consumer every time) blocks the queue forever, because the consumer keeps picking it up, dying, and restarting. The DLQ gets the bad message out of the way so the rest of the traffic flows.
 
 **What to say about DLQs in an interview:**
@@ -297,26 +239,6 @@ flowchart TB
     REQ ~~~ EVT
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  REQUEST-DRIVEN (services call each other):
-    OrderService ──► InventoryService
-                 ──► EmailService
-                 ──► AnalyticsService
-    Order service must know about all three. Adding a fourth
-    consumer means changing OrderService.
-
-  EVENT-DRIVEN:
-    OrderService ──publishes──► "order.placed" ──┬──► InventoryService
-                                                  ├──► EmailService
-                                                  ├──► AnalyticsService
-                                                  └──► (new service, no change upstream)
-```
-
-</details>
-
 **Benefits:** producers don't know their consumers, so you add capabilities without modifying existing services. Services fail independently. Traffic spikes are absorbed by the log. Events are a durable audit trail.
 
 **Costs, which you should volunteer:** no single place shows the whole flow, so debugging requires distributed tracing. Eventual consistency becomes pervasive. Schema evolution is a real discipline problem — once ten consumers depend on an event's shape, changing it is dangerous. Use a **schema registry** with compatibility rules (add optional fields, never remove or repurpose existing ones) and version your events.
@@ -347,21 +269,6 @@ flowchart LR
     Ev3 -- "fold" --> Bal2(["balance = 70"])
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  TRADITIONAL:  account_balance = 70
-
-  EVENT SOURCED:
-     [ Deposited 100 ]
-     [ Withdrew 50  ]
-     [ Deposited 20  ]
-     ──► fold ──► balance = 70
-```
-
-</details>
-
 **Benefits:** complete audit history for free (crucial in finance and healthcare), ability to reconstruct state at any past point in time ("what did this look like last Tuesday?"), ability to build entirely new read models by replaying history, and natural debugging of how a bad state came to be.
 
 **Costs:** the event log grows forever, so you need **snapshots** (periodically store a computed state so replay starts from there rather than the beginning). Querying is awkward — "all accounts with balance over 1000" requires a separate read model. And events are immutable, so fixing a mistake means appending a *compensating* event, not editing history. It is a heavyweight pattern; use it where the audit trail is genuinely the point.
@@ -378,22 +285,6 @@ flowchart LR
     WM -- "events / sync" --> RM["READ MODEL(S)<br/>denormalized, query-optimized"]
     RM --> R([reads])
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-       writes                              reads
-         │                                   ▲
-         v                                   │
-  ┌────────────┐    events/sync    ┌──────────────────┐
-  │ WRITE MODEL│ ─────────────────►│ READ MODEL(S)     │
-  │ normalized │                    │ denormalized,     │
-  │ validated  │                    │ query-optimized   │
-  └────────────┘                    └──────────────────┘
-```
-
-</details>
 
 Why: reads and writes have genuinely different requirements. Writes need validation, normalization, and transactional integrity. Reads need denormalized, pre-joined shapes and often 100x the throughput. Forcing one model to serve both means compromising on both.
 

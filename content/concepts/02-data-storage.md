@@ -32,23 +32,6 @@ erDiagram
     }
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-users                     orders
-┌────┬─────────┐         ┌────┬─────────┬────────┐
-│ id │ name    │         │ id │ user_id │ total  │
-├────┼─────────┤         ├────┼─────────┼────────┤
-│ 1  │ Alice   │◄────────┤ 10 │    1    │ 42.00  │
-│ 2  │ Bob     │         │ 11 │    1    │ 17.50  │
-└────┴─────────┘         │ 12 │    2    │ 99.00  │
-                          └────┴─────────┴────────┘
-     "Alice" is stored ONCE. Orders reference her by id.
-```
-
-</details>
-
 **Normalization** means eliminating duplicated data. If Alice changes her name, you update one row. Without normalization you'd update every order that stored her name, and if you missed one you'd have inconsistent data.
 
 **Denormalization** is deliberately duplicating data to make reads faster — storing the user's name directly on the order row so you don't need a join. You trade write complexity and storage for read speed. This is a recurring theme: denormalization is what fan-out-on-write (Module 6) and caching (Module 4) both fundamentally are.
@@ -151,19 +134,6 @@ flowchart TB
     L3 -. "leaves hold pointers to actual rows" .-> Rows[("table rows")]
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                 [ m ]
-               /       \
-        [ f | j ]      [ r | w ]
-        /   |   \      /   |   \
-     ...  ...  ...   ...  ...  ...     <- leaves contain pointers to actual rows
-```
-
-</details>
-
 **The costs, which you should mention when you propose an index:**
 
 - Every index must be updated on every insert, update, and delete. Five indexes means a single-row insert does six writes. Indexes make reads fast and writes slow.
@@ -194,25 +164,6 @@ flowchart TB
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Leader hot
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-        writes
-          │
-          v
-    ┌──────────┐
-    │  LEADER  │ ──replication──┬──────────┐
-    └──────────┘                v          v
-                          ┌─────────┐ ┌─────────┐
-                          │FOLLOWER │ │FOLLOWER │
-                          └─────────┘ └─────────┘
-                               ^           ^
-                               └─ reads ───┘
-```
-
-</details>
 
 All writes go to the leader. The leader streams its change log to followers. Reads can go to any node.
 
@@ -295,29 +246,6 @@ flowchart TB
     k3["key3"] -. "stored on" .-> D
     k4["key4"] -. "stored on" .-> A
 ```
-
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                    0 / 2^32
-                        │
-              NodeA ────┼──── key1
-                   ╱    │    ╲
-                  ╱     │     ╲ NodeB
-            key4 │      ●      │
-                  ╲           ╱  key2
-              NodeD ╲       ╱
-                      ────────  NodeC
-                         key3
-
-  key1 -> NodeB   (first node clockwise)
-  key2 -> NodeC
-  key3 -> NodeD
-  key4 -> NodeA
-```
-
-</details>
 
 **Now add NodeE between NodeB and NodeC.** Only the keys that sat between NodeB and NodeE move — roughly `1/N` of the data. Nothing else is disturbed. Removing a node is equally surgical: only its keys move, to the next node clockwise.
 

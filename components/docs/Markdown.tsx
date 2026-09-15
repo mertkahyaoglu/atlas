@@ -7,6 +7,8 @@ import rehypeSlug from "rehype-slug";
 import rehypeRaw from "rehype-raw";
 import { CodeBlock } from "./CodeBlock";
 import { Mermaid } from "./Mermaid";
+import { FlowDiagram } from "./diagram/FlowDiagram";
+import { isFlowchart } from "@/lib/diagram/parse";
 import { ApiBlock } from "./ApiBlock";
 import { SchemaBlock } from "./SchemaBlock";
 
@@ -40,7 +42,7 @@ const components: Components = {
     const language = /language-([\w-]+)/.exec(codeProps.className ?? "")?.[1];
     const code = textOf(codeProps.children).replace(/\n$/, "");
 
-    if (language === "mermaid") return <Mermaid chart={code} />;
+    if (language === "mermaid") return isFlowchart(code) ? <FlowDiagram chart={code} /> : <Mermaid chart={code} />;
     if (language === "api") return <ApiBlock source={code} />;
     if (language === "schema") return <SchemaBlock source={code} />;
     return <CodeBlock code={code} language={language} />;

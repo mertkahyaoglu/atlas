@@ -30,7 +30,8 @@ app/
 components/
   layout/                 sidebar, top bar, theme toggle
   home/                   hero, filter bar, cards
-  docs/                   markdown renderer, Mermaid, TOC, prev/next
+  docs/                   markdown renderer, diagrams, TOC, prev/next
+  docs/diagram/           React Flow canvas, node types, node detail dialog
   ui/                     tag, search input, badges, empty state
 lib/
   content.ts              filesystem loader, TOC builder, sibling lookup
@@ -74,37 +75,54 @@ derive from the file. Nothing else needs editing.
 ## Diagrams
 
 Fenced blocks tagged `mermaid` render as diagrams; everything else renders as a
-copyable code block. Mermaid is dynamically imported so its ~500 KB stays out of the
-initial bundle, and it re-renders when the theme changes.
+copyable code block.
+
+Flowcharts (`flowchart TB` or `flowchart LR`) are drawn with React Flow, so they pan,
+zoom and go full screen. They are still authored in Mermaid syntax:
+`lib/diagram/parse.ts` reads the subset the content uses (its header comment lists
+it), `lib/diagram/layout.ts` places the nodes with dagre, and
+`components/docs/diagram/` renders them. Every node kind is its own small component
+built on a shared `NodeCard`. Sequence and ER diagrams still render with Mermaid,
+dynamically imported so its ~500 KB stays out of the initial bundle. React Flow loads
+lazily too.
 
 Each design's architecture diagram is written directly in its markdown, under
-`## High-level architecture`. Hover tooltips come from Mermaid `click` lines that
-link a node to a concept module:
+`## High-level architecture`. Clicking a node opens a dialog with its purpose, its
+trade-off and its connections. The purpose and trade-off come from a `click` line,
+which also links the node to a concept module:
 
 ```text
 click Node href "/docs/05-async-messaging-and-event-driven" "Role: …<br/>Trade-off: …"
 ```
 
-If a chart fails to parse, the `Mermaid` component catches it and falls back to showing
-the source rather than blanking the page.
+A node without a `click` line shows general notes for its kind instead, from
+`lib/diagram/kinds.ts`.
 
-Node colour is by type, not per diagram, so the same colour means the same thing on
-every page:
+If a chart fails to parse, the diagram falls back to showing the source rather than
+blanking the page.
+
+Node colour is by kind, not per diagram, so the same colour means the same thing on
+every page. A node's class sets its kind:
 
 ```text
-classDef db       fill:#34526e,stroke:#6cb2ee,color:#d7dee8   /* durable stores: Postgres, Cassandra tables */
-classDef cache    fill:#623e43,stroke:#f07a73,color:#d7dee8   /* Redis, or anything explicitly TTL'd */
-classDef blob     fill:#5f5830,stroke:#e6c43c,color:#d7dee8   /* object storage: S3-style blobs */
-classDef queue    fill:#4b4771,stroke:#ad94f7,color:#d7dee8   /* message buses, topics, pub/sub */
-classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8   /* third-party systems: APNs, SMTP, a PSP, a CDN */
-classDef gateway  fill:#22565e,stroke:#38bdc1,color:#d7dee8   /* the edge reverse-proxy tier: an API gateway */
-classDef lb       fill:#5d3759,stroke:#e066b2,color:#d7dee8   /* a load balancer */
-classDef hot      stroke:#e8a33d,stroke-width:2px             /* the node the deep dive is actually about */
+class Node db        durable stores: Postgres, Cassandra tables
+class Node cache     Redis, or anything explicitly TTL'd
+class Node blob      object storage: S3-style blobs
+class Node queue     message buses, topics, pub/sub
+class Node external  third-party systems: APNs, SMTP, a PSP, a CDN
+class Node gateway   the edge reverse-proxy tier: an API gateway
+class Node lb        a load balancer
+class Node hot       the node the deep dive is actually about
 ```
 
-Only add a `classDef` a diagram uses — most designs don't need all seven. `hot` is an
-emphasis layered on top of a type (`class Node1 db` and `class Node1 hot` both apply),
-not a type of its own. A stateful, per-connection **WS gateway** (the socket-holding
+An unclassed node takes its kind from its shape: `[(…)]` is a plain data store,
+`([…])` an endpoint such as a client or a response, `{…}` a decision, and anything
+else a service. Colours are theme tokens (`--tone-*` in `app/globals.css`), so they
+adapt to both themes. `classDef` lines are ignored by the renderer; keep them only if
+you want the fence to still look right in a plain Mermaid viewer.
+
+`hot` is an emphasis layered on top of a kind (`class Node1 db` and `class Node1 hot`
+both apply), not a kind of its own. A stateful, per-connection **WS gateway** (the socket-holding
 tier in the chat-style designs) is deliberately left uncoloured — it's a different thing
 from an API gateway's reverse-proxy role, and colouring both the same would blur that
 distinction rather than sharpen it. Everything else stays the unclassed default box, so
