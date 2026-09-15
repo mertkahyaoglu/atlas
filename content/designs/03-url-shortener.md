@@ -105,6 +105,8 @@ Note the partition key: `short_code` is effectively random (base62 of a hashed/e
 
 ## High-level architecture
 
+<!-- tab: Today · 100k redirects/s -->
+
 ```mermaid
 flowchart TB
     subgraph W ["Write path · 1k/sec"]
@@ -150,104 +152,6 @@ flowchart TB
     click Flink href "/docs/09-specialized-building-blocks" "Role: rolls raw clicks into windowed counts for the stats API.<br/>Trade-off: late events need watermark handling, so counts at window edges are approximate."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                           ═══ WRITE PATH (1k/sec) ═══
-
-  [Client] ──POST /v1/urls──► ┌──────────────┐
-                               │ API Gateway  │ authn, rate limit (abuse control)
-                               └──────┬───────┘
-                                      ▼
-                          ┌────────────────────────┐
-                          │   SHORTEN SERVICE       │
-                          │                         │
-                          │  custom alias?          │
-                          │   YES → check uniqueness│
-                          │   NO  → get ID ─────────┼──┐
-                          │        encode base62    │  │
-                          └───────────┬─────────────┘  │
-                                      │                │
-                                      │    ┌───────────▼─────────────┐
-                                      │    │  ID GENERATION           │
-                                      │    │  ┌────────────────────┐  │
-                                      │    │  │ Option A: Snowflake│  │
-                                      │    │  │  64-bit, local, no │  │
-                                      │    │  │  coordination      │  │
-                                      │    │  ├────────────────────┤  │
-                                      │    │  │ Option B: Ticket   │  │
-                                      │    │  │  server hands out  │  │
-                                      │    │  │  ranges of 10,000  │  │
-                                      │    │  │  → local increment │  │
-                                      │    │  └────────────────────┘  │
-                                      │    │  then: base62(id ⊕ salt) │
-                                      │    │        → non-sequential  │
-                                      │    └──────────────────────────┘
-                                      ▼
-                        ┌──────────────────────────┐
-                        │  urls store              │
-                        │  key-value / Cassandra   │
-                        │  PK = short_code         │
-                        │  (conditional write to   │
-                        │   guarantee uniqueness)  │
-                        └────────────┬─────────────┘
-                                     │ write-through
-                                     ▼
-                        ┌──────────────────────────┐
-                        │  Redis cache             │
-                        └──────────────────────────┘
-
-
-                        ═══ READ PATH (100k/sec) ═══
-
-  [Browser] ──GET /abc1234──► ┌──────────────┐
-                               │     CDN      │  cache 302 w/ short TTL
-                               └──────┬───────┘  (optional; see trade-offs)
-                                      │ miss
-                                      ▼
-                               ┌──────────────┐
-                               │ Load Balancer│
-                               └──────┬───────┘
-                                      ▼
-                        ┌──────────────────────────┐
-                        │   REDIRECT SERVICE        │  stateless, autoscaled
-                        └──────────┬───────────────┘
-                                   │
-                        ┌──────────▼───────────┐
-                        │  Redis cluster        │   ~95% HIT
-                        │  code → long_url      │   LRU + TTL
-                        └──────┬───────┬────────┘
-                          HIT  │       │ MISS (~5%)
-                               │       ▼
-                               │  ┌──────────────────┐
-                               │  │  urls store      │
-                               │  │  (read replicas) │
-                               │  └────────┬─────────┘
-                               │           │ populate cache
-                               │           ▼
-                               │      ┌──────────┐
-                               └─────►│ 302 Found│──► browser follows
-                                      └────┬─────┘
-                                           │ fire-and-forget (async!)
-                                           ▼
-                                ┌────────────────────┐
-                                │ Kafka "click"      │
-                                └─────────┬──────────┘
-                                          ▼
-                        ┌────────────────────────────────┐
-                        │  Stream processor (Flink)       │
-                        │  tumbling windows → aggregates  │
-                        └──────┬──────────────┬───────────┘
-                               ▼              ▼
-                     ┌────────────────┐  ┌──────────────┐
-                     │  clicks_agg    │  │ Data warehouse│
-                     │  (fast stats)  │  │ (raw, BigQuery)│
-                     └────────────────┘  └──────────────┘
-```
-
-</details>
-
 The shortener is two paths joined by one Redis cluster: a write path at about 1k requests per second that creates links, and a read path at about 100k that redirects them. A separate analytics pipeline hangs off the redirect.
 
 1. A client's `POST /v1/urls` passes the API Gateway, which applies auth and an abuse rate limit, and reaches the Shorten Service.
@@ -258,5 +162,85 @@ The shortener is two paths joined by one Redis cluster: a write path at about 1k
 6. The browser follows the redirect to the destination site.
 
 Every 302 also fires a click event to Kafka and returns without waiting for it. A stream processor groups those events into tumbling windows and writes to two places: `clicks_agg`, which serves the stats API, and the data warehouse, which keeps raw analytics.
+
+<!-- tab: At 100x · 10M redirects/s -->
+
+```mermaid
+flowchart TB
+    Browser([Browser]) --> Edge["Edge worker · ~300 PoPs<br/>redirect code runs on every click"]
+    Edge -- "1 · lookup" --> EdgeKV[("Edge KV · hot links<br/>short TTL · not-found entries too")]
+    EdgeKV -- "~80% HIT" --> Resp["302 Found"]
+    EdgeKV -- "miss" --> RegCache[("Regional Redis<br/>code → long_url")]
+    RegCache -- "hit" --> Resp
+    RegCache -- "miss" --> Store[("urls · sharded KV store<br/>PK = short_code<br/>replicated to every region")]
+    Store -- "populate caches" --> Resp
+    Store -. "unclicked for a year" .-> Cold[("Cold tier · object storage<br/>restored on first miss")]
+    Resp -- "browser follows redirect" --> Dest([Destination site])
+
+    Edge -. "2 · ~100ms batches of clicks<br/>dropped if the region is down" .-> Clicks{{"Kafka · click events<br/>one cluster per region"}}
+    Clicks --> Flink["Stream processor<br/>viral codes on salted keys"]
+    Flink --> Agg[("clicks_agg<br/>fast stats")]
+    Flink --> Warehouse[("Data warehouse<br/>raw analytics")]
+
+    subgraph W ["Write path · ~300k/sec, nearest region"]
+        direction TB
+        Creator([Client]) --> WGW[API Gateway<br/>auth · abuse rate limit]
+        WGW --> Shorten[Shorten Service]
+        Shorten --> IDGen["ID ranges per region<br/>disjoint prefixes, no global counter<br/>8-char base62 of scrambled counter"]
+    end
+    IDGen -- "conditional write" --> Store
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Store,Agg,Warehouse db
+    class EdgeKV,RegCache cache
+    class Cold blob
+    class Clicks queue
+    class Edge external
+    class WGW gateway
+    class Edge hot
+    class Edge,EdgeKV,RegCache,Store,Cold,Clicks,IDGen scaled
+
+    click Edge href "/docs/09-specialized-building-blocks" "Role: runs redirect code in every CDN point of presence, so each click is still logged.<br/>Trade-off: edge compute is billed per request, and deploys go to hundreds of locations."
+    click EdgeKV href "/docs/04-caching" "Role: hot code → URL mappings and short-lived not-found entries at the edge.<br/>Trade-off: an expired or deleted link can keep redirecting until its edge TTL runs out."
+    click RegCache href "/docs/04-caching" "Role: regional cache for links not hot enough to live at the edge.<br/>Trade-off: a second cache layer to invalidate on delete or expiry."
+    click Store href "/docs/02-data-storage" "Role: every link, hash-partitioned on short_code and replicated to all regions.<br/>Trade-off: multi-petabyte, so rarely used links are pushed to a cold tier."
+    click Cold href "/docs/09-specialized-building-blocks" "Role: links nobody has clicked for a year, in cheap object storage.<br/>Trade-off: the first click after a long sleep gets a slow redirect."
+    click Clicks href "/docs/05-async-messaging-and-event-driven" "Role: regional buffer for click batches shipped from the edge.<br/>Trade-off: a batch lost with an edge node drops ~100ms of clicks."
+    click Flink href "/docs/09-specialized-building-blocks" "Role: rolls raw clicks into windowed counts for the stats API.<br/>Trade-off: salted keys for viral links add a merge step downstream."
+    click IDGen href "/docs/03-consistency-and-distributed-systems" "Role: hands out ID ranges from a region-specific prefix, then scrambles and encodes them.<br/>Trade-off: ranges lost when nodes die leave gaps, which are harmless."
+```
+
+Same product at 100x the traffic. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 100x |
+|---|---|---|
+| Creates at peak | 3,000/sec | 300,000/sec |
+| Redirects | 100k/sec | 10M/sec |
+| Storage over 5 years | ~90 TB | ~9 PB |
+| Codes created | 100M/day | 10B/day |
+| 7-char key space lasts | ~95 years | under 1 year |
+| Where redirects are answered | a few regions | ~300 edge locations |
+
+**What changes, and the number that forces it**
+
+1. **Codes grow from 7 to 8 characters.** At ~10B creates/day, the 3.5 trillion 7-char codes run out in under a year. 62^8 is ~218 trillion, about 60 years at this rate. Existing 7-char links keep working, because a code's length is part of the code.
+2. **Redirects move to the edge.** 10M redirects/sec served from a few regions can't hold a 50ms p99 for users far from them. An edge worker in each CDN point of presence answers from a small edge key-value store of hot links. Unlike caching the 302 response itself, the worker runs on every click, so analytics survive: this resolves the "should the CDN cache redirects?" trade-off instead of giving something up.
+3. **Clicks are batched at the edge.** 10M events/sec sent one at a time would double the edge's own request volume. Workers buffer ~100ms of clicks and ship batches to the regional Kafka, dropping them if the region is unreachable, because redirect availability still outranks analytics completeness. Viral codes get salted partition keys so one link can't pin one partition.
+4. **ID ranges are carved per region.** Creates go to the nearest region, and a round trip to one global ticket server would put an ocean on the write path. Each region's ticket server hands out ranges from its own prefix, so codes stay unique with no cross-region coordination.
+5. **Storage becomes a sharded KV store with a cold tier.** ~9 PB over five years is well past "plan for partitioning". The urls table lives in a multi-region key-value store hash-partitioned on `short_code`, which is still a perfectly uniform key. Links nobody has clicked in a year move to object storage and are restored on their first miss.
+6. **Not-found answers stop at the edge.** At this volume, scanners guessing codes are real load. Caching "not found" for a short TTL at the edge, plus per-IP limits on 404s, keeps enumeration from reaching the regions at all.
+
+**What stays the same**
+
+302 over 301, a scrambled counter so codes can't be enumerated, analytics that never block a redirect, a conditional write for custom aliases, and TTL expiry returning 410. The 10x follow-up already says this design scales almost linearly; at 100x each piece just moves closer to the user, and the key space gets one more character.
+
+<!-- /tabs -->
 
 ---

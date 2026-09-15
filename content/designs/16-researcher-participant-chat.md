@@ -190,6 +190,8 @@ Two columns on `conversations` carry most of the design. The `(study_id, researc
 
 ## High-level architecture
 
+<!-- tab: Today · ~200 msg/s -->
+
 ```mermaid
 flowchart TB
     P([Participant]) -- "WSS · send" --> GWA["WS gateway #1<br/>sender's socket"]
@@ -240,61 +242,6 @@ flowchart TB
     click Retention href "/docs/08-reliability-and-operations" "Role: enforces retention deadlines and erasure requests.<br/>Trade-off: backups can't be edited, so erasure is replayed after restores or keys are shredded."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
- [Participant]                                          [Researcher]
-       │ WSS · send                                          ▲ WSS · alias only,
-       ▼                                                     │ never participant_id
-┌──────────────────────┐                          ┌──────────┴───────────┐
-│ WS GATEWAY #1        │   3 nodes, N+1 spare     │ WS GATEWAY #3        │
-│ holds sender socket  │   sockets only           │ subscribed to        │
-└──────────┬───────────┘                          │ user:<researcher>    │
-           │ 1. send frame                        └──────────────────────┘
-           ▼                                                   ▲
-┌────────────────────────────────────────────┐                 │ 5. push
-│ CHAT SERVICE · one transaction per send    │                 │
-│                                            │                 │
-│ 2. token bucket in Redis, else 429         │                 │
-│ 3. BEGIN                                   │                 │
-│      state = open, now < writable_until,   │                 │
-│      sender not blocked, else 409          │                 │
-│      INSERT message, dedupe client_msg_id  │                 │
-│      INSERT notification_outbox            │                 │
-│    COMMIT, then ack "sent" to sender       │                 │
-└──────────┬──────────────────────┬──────────┘                 │
-           │ durable              │ 4. publish                 │
-           ▼                      ▼                            │
-┌─────────────────────────┐  ┌──────────────────────────────┐  │
-│ POSTGRES · truth        │  │ REDIS pub/sub                │  │
-│ primary + sync standby  │  │ doorbell only: a missed      ├──┘
-└─────────────────────────┘  │ publish is repaired by       │
-                             │ cursor resync on reconnect   │
-                             └──────────────────────────────┘
-
- STUDY SERVICE ──lifecycle events──► LIFECYCLE CONSUMER
-                 late, repeated or   UPDATE conversations SET state = …
-                 out of order        WHERE study_version < event_version
-
- notification_outbox ──► NOTIFIER WORKER ──────────────► email / push
-                         SKIP LOCKED · skip if read      link only,
-                         debounce per conversation       no message body
-
- client ──presigned PUT──► OBJECT STORAGE · UK region
-                           quarantine → AV scan, sniff type, strip EXIF
-                           → clean → short-lived GET URL per request
-
- STAFF CONSOLE ──► 1. INSERT audit_log (if this fails, the read fails)
-                   2. read a conversation linked to the ticket
-                   3. unmask only with a reason + a second approver
-
- RETENTION + ERASURE ──► past retention_deadline, no legal_hold
-                         → NULL bodies, delete objects, keep tombstones
-```
-
-</details>
-
 Everything durable lives in Postgres. The WS gateways hold sockets, Redis rings the recipient's gateway and holds rate-limit buckets, and the remaining boxes are side flows that read or write the same database.
 
 1. The participant sends a frame over WSS to WS gateway #1, which forwards it to the Chat service.
@@ -304,5 +251,110 @@ Everything durable lives in Postgres. The WS gateways hold sockets, Redis rings 
 5. Redis delivers the publish to the subscribed gateway, WS gateway #3, which pushes the message to the researcher over WSS with the participant's alias only.
 
 The side flows all meet at Postgres. The lifecycle consumer applies study service events to conversation state, guarded by `study_version`. The notifier worker drains the outbox into an email or push that carries a link but no message body. The staff console writes an audit row before each ticket-scoped read. Retention + erasure clears expired message bodies and attachment objects unless `legal_hold` is set, and attachments reach object storage through a presigned PUT into quarantine.
+
+<!-- tab: At 100x · ~20k msg/s -->
+
+```mermaid
+flowchart TB
+    P([Participant]) -- "WSS" --> LB["L4 load balancer<br/>long-lived connections"]
+    LB --> GWA["WS gateway fleet<br/>~100 nodes · ~30k sockets each"]
+    GWA -- "1 · send frame" --> Limit
+
+    subgraph SEND ["Chat service · stateless"]
+        direction TB
+        Limit["2 · rate limit<br/>dedicated Redis Cluster"]
+        Txn["3 · route by shard bits in conversation_id<br/>BEGIN · gate · insert encrypted message<br/>+ outbox · COMMIT, then ack sent"]
+        Limit --> Txn
+    end
+
+    Txn --> Shards[("Postgres · 64 logical shards<br/>keyed by study_id<br/>primary + sync standby each<br/>monthly message partitions")]
+    Txn -- "4 · lookup" --> Registry[("Connection registry<br/>user_id → gateways<br/>TTL heartbeat")]
+    Txn -- "5 · publish" --> PubSub{{"pub/sub<br/>channel per gateway"}}
+    PubSub -- "6 · push" --> GWB["WS gateway #57<br/>recipient's socket"]
+    GWB -- "WSS · alias only" --> R([Researcher])
+
+    Study["Study service"] -. "lifecycle events<br/>keyed by study_id" .-> Consumer["Lifecycle consumer<br/>study_version guard"]
+    Consumer --> Shards
+
+    Shards -- "outbox · CDC" --> Kafka{{"Kafka · chat events<br/>keyed by conversation_id<br/>ids, no bodies"}}
+    Kafka --> Notifier["Notifier<br/>skip if read or connected<br/>link only, no body"]
+    Kafka --> Inbox[("Inbox index<br/>sharded by user_id")]
+    Kafka --> Mod["Moderation pipeline<br/>classifiers → severity triage<br/>reviewer queues"]
+
+    %% Side flows sit below the stream so the diagram grows down, not across.
+    Inbox ~~~ Staff
+    Mod ~~~ Retention
+
+    Shards -. "ticket-scoped read" .-> Staff["Staff console<br/>audit row, then read<br/>four-eyes unmask"]
+    Staff -- "audit row first" --> Audit[("Audit store<br/>INSERT-only → WORM")]
+
+    Shards -. "past deadline" .-> Retention["Retention + erasure<br/>shred keys · drop partitions"]
+    Retention --> Keys[("Key store<br/>data key per<br/>conversation side")]
+    Retention --> Obj[("Object storage · UK<br/>quarantine → scan")]
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef lb fill:#5d3759,stroke:#e066b2,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Shards,Inbox,Audit,Keys db
+    class Registry cache
+    class Obj blob
+    class Kafka,PubSub queue
+    class LB lb
+    class Txn,Staff hot
+    class LB,GWA,Registry,PubSub,Shards,Kafka,Inbox,Mod,Audit,Keys scaled
+
+    click LB href "/docs/01-foundations" "Role: spreads ~3M long-lived WebSocket connections across the gateway fleet.<br/>Trade-off: balancing happens per connection, so load only evens out as clients reconnect."
+    click GWA href "/docs/07-apis-and-communication" "Role: socket-only nodes, autoscaled on connection count.<br/>Trade-off: kept well under the ~50k ceiling so a dead node's clients fit on its neighbours."
+    click Limit href "/docs/07-apis-and-communication" "Role: token buckets per sender, per conversation and for new conversations.<br/>Trade-off: a Redis Cluster of its own, so registry churn in a reconnect storm can't stall sends."
+    click Txn href "/docs/03-consistency-and-distributed-systems" "Role: routes to the shard named in conversation_id and runs the gate and insert as one local transaction.<br/>Trade-off: everything the gate reads must live with the conversation, which pins the shard key."
+    click Shards href "/docs/02-data-storage" "Role: source of truth, split into 64 logical shards on a few physical primaries.<br/>Trade-off: no cross-shard queries, so conversation lists and erasure need the inbox index."
+    click Registry href "/docs/07-apis-and-communication" "Role: maps each user to the gateways holding their sockets, one entry per device.<br/>Trade-off: entries go stale when a gateway dies; TTL heartbeats bound it and cursor resync covers the gap."
+    click PubSub href "/docs/05-async-messaging-and-event-driven" "Role: rings only the gateways holding the recipient, not every node.<br/>Trade-off: still fire-and-forget, so clients resync from Postgres on reconnect."
+    click Keys href "/docs/09-specialized-building-blocks" "Role: one data key per conversation side; deleting it erases those bodies everywhere.<br/>Trade-off: a dependency on every send and history read, softened by caching keys briefly."
+    click Kafka href "/docs/05-async-messaging-and-event-driven" "Role: one ordered stream of send events for every async consumer.<br/>Trade-off: CDC lags by about a second, which is why the doorbell doesn't wait for it."
+    click Notifier href "/docs/03-consistency-and-distributed-systems" "Role: turns send events into debounced email and push.<br/>Trade-off: at-least-once, so a crash mid-send can produce a duplicate email."
+    click Inbox href "/docs/02-data-storage" "Role: each user's conversation list, and the map erasure uses to find their shards.<br/>Trade-off: built from the stream, so a new conversation can take a second to appear."
+    click Mod href "/docs/08-reliability-and-operations" "Role: classifiers score messages and severity triage orders the reviewer queues.<br/>Trade-off: auto-freezing on confident severe hits can pause a legitimate chat until a human looks."
+    click Consumer href "/docs/05-async-messaging-and-event-driven" "Role: applies study lifecycle events on the shard that owns the study.<br/>Trade-off: events still repeat and reorder, so every update keeps the study_version guard."
+    click Staff href "/docs/08-reliability-and-operations" "Role: ticket-scoped support access and audited unmasking.<br/>Trade-off: the audit store is now a separate dependency, and reads fail closed when it's down."
+    click Audit href "/docs/08-reliability-and-operations" "Role: append-only record of every staff read and unmask, shipped to write-once storage.<br/>Trade-off: it no longer shares a database with the data, so ordering (audit, then read) is the guarantee."
+    click Retention href "/docs/08-reliability-and-operations" "Role: shreds keys at deadlines and on erasure requests, then drops expired partitions.<br/>Trade-off: rows under legal hold must be copied forward before a partition can go."
+    click Obj href "/docs/09-specialized-building-blocks" "Role: attachment bytes, quarantined until scanned, with scan workers that autoscale.<br/>Trade-off: at ~2 TB/day a traffic spike builds a scan backlog, delaying attachments."
+```
+
+Same product and the same rules, at 100x the traffic. Dashed outlines mark what's new or reshaped compared with today's design; every other box is the same component doing the same job.
+
+| | Today | At 100x |
+|---|---|---|
+| Concurrent connections | ~30k | ~3M |
+| Messages at peak | ~200/sec | ~20k/sec |
+| Database writes at peak, receipts included | ~600/sec | ~60k/sec |
+| Message rows inside retention | ~400 GB | ~40 TB |
+| Attachments | ~20 GB/day | ~2 TB/day |
+| Gateway nodes | 3 | ~100 |
+
+**What changes, and the number that forces it**
+
+1. **Gateways: 3 nodes → ~100 behind an L4 load balancer.** 3M sockets at ~30k per node, deliberately below the ~50k ceiling so a dead node's clients fit on its neighbours when they reconnect. Reconnect storms after a deploy or an outage size this tier more than steady traffic does, so deploys drain a few nodes at a time and clients back off with jitter.
+2. **Per-user channels → a connection registry.** Three million per-user subscriptions no longer sit comfortably on one Redis, and Redis Cluster's classic pub/sub broadcasts every publish to every node. The chat service looks up `user_id → gateways` in a TTL'd registry and publishes to each gateway's own channel, which is the Slack design's shape. The registry also answers questions that used to be free: which of a user's devices are online, and whether the notifier can skip an email because the recipient is connected. Rate-limit buckets move to a separate Redis Cluster so registry churn during a reconnect storm can't stall sends.
+3. **One Postgres → 64 logical shards keyed by `study_id`.** ~20k inserts/sec would squeeze onto a large primary. What doesn't fit is ~60k writes/sec once receipts are counted, and 40 TB on one box: restores measured in hours, vacuum that falls behind, and retention fighting live sends. Logical shards start on a few physical primaries, each still with a synchronous standby, and move as they grow. The shard number is embedded in `conversation_id`, so every request routes without a lookup, and lifecycle events keyed by `study_id` land in order on the shard that owns the study.
+4. **The send transaction still touches one shard.** Everything the gate reads (`state`, `writable_until`, blocks) and everything a send writes (message, outbox, receipts) is keyed by the conversation, so it's co-located. No distributed transaction, no saga: the gate is still a column read inside one `BEGIN … COMMIT`. This is what *"shardable by `study_id`, but not sharded on day one"* was buying. Message IDs stay per-shard sequences, because ordering only matters within a conversation.
+5. **Conversation lists need an inbox index.** Keying by study scatters one person's conversations across shards, so *my conversations* would fan out to all 64. An inbox index sharded by `user_id` is built from the event stream and lags by about a second, which a list can tolerate. Erasure uses the same index to find every shard holding a user's messages.
+6. **Outbox polling → CDC into Kafka.** Three consumers now need every send (notifier, inbox index, moderation), and polling 64 outbox tables once per consumer doesn't scale. Logical decoding streams each shard's outbox into Kafka, keyed by `conversation_id` to keep per-conversation order. Events carry IDs, not bodies, so Kafka never becomes another copy to erase. The doorbell still fires straight after commit: routing it through CDC would add a second of latency and no durability, since clients resync from Postgres anyway.
+7. **Moderation becomes a pipeline.** Reports grow with users and reviewers don't autoscale, which is why moderation breaks before any database does. Classifiers score messages from the stream, severity triage orders the reviewer queues, and confident hits in severe categories freeze the conversation right away, pending a human.
+8. **Retention shreds keys instead of rewriting rows.** ~200M bodies expire every day, and nulling them row by row is a second write workload as large as the average send rate. Instead, each conversation side's messages are encrypted with their own data key, held in a small key store outside the shards. Retention and erasure delete the key, which makes those bodies unreadable everywhere at once, backups and replicas included. Space comes back later: copy the few rows under `legal_hold` forward, then detach whole monthly partitions. The cost is a key fetch on sends and history reads, cached briefly in the service.
+9. **Audit gets its own store.** With conversations spread across shards, the audit log can't share their transaction. Staff reads commit the audit row to a dedicated append-only store first, then read the shard. It still fails closed; the ordering is now the guarantee rather than a shared database.
+
+**What stays the same**
+
+The hard parts don't grow with traffic, so they don't change. The gate is still a column read inside the send transaction, every researcher-facing payload still passes through the alias serializer, staff reads are still ticket-scoped and audited before any data returns, and emails still carry a link and no body. Attachments keep the presigned, quarantined flow; only the scan workers autoscale. And it's still one UK region, spread across availability zones, because residency outranks latency for this company.
+
+In an interview, tie every new box to the row in the table that forces it. At today's numbers none of them clears the bar, which is exactly why today's design doesn't have them.
+
+<!-- /tabs -->
 
 ---

@@ -117,6 +117,8 @@ schedule || PK: url_hash || next_crawl_at, change_frequency_estimate ||
 
 ## High-level architecture
 
+<!-- tab: Today · 10k pages/s -->
+
 ```mermaid
 flowchart TB
     Seeds([Seed URLs]) --> Front
@@ -157,121 +159,6 @@ flowchart TB
     click Bloom href "/docs/09-specialized-building-blocks" "Role: checks 100B URLs in memory to skip ones already crawled.<br/>Trade-off: about 1% false positives, so some genuinely new URLs are skipped."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                      ┌──────────────────┐
-                      │   SEED URLS      │
-                      └────────┬─────────┘
-                               ▼
-  ┌───────────────────────────────────────────────────────────────┐
-  │                        URL FRONTIER                            │
-  │                                                                │
-  │   ┌──────────────────────────────────────────────────────┐    │
-  │   │  FRONT QUEUES — PRIORITY                              │    │
-  │   │   Q1 (high: news, homepages, frequently changing)     │    │
-  │   │   Q2 (medium)                                         │    │
-  │   │   Q3 (low: deep pages, rarely changing)               │    │
-  │   │   selector picks by weighted probability              │    │
-  │   └───────────────────────┬──────────────────────────────┘    │
-  │                            ▼                                   │
-  │   ┌──────────────────────────────────────────────────────┐    │
-  │   │  BACK QUEUES — POLITENESS  (one queue PER HOST)        │    │
-  │   │                                                        │    │
-  │   │   host:example.com   → [u1, u2, u3 ...]               │    │
-  │   │   host:wikipedia.org → [u4, u5 ...]                   │    │
-  │   │   host:blog.io       → [u6 ...]                       │    │
-  │   │                                                        │    │
-  │   │   ┌────────────────────────────────────────────┐      │    │
-  │   │   │ HEAP keyed by next_allowed_fetch_time      │      │    │
-  │   │   │  example.com   → t=10:00:03                │      │    │
-  │   │   │  wikipedia.org → t=10:00:01  ◄── pop this  │      │    │
-  │   │   │  blog.io       → t=10:00:07                │      │    │
-  │   │   └────────────────────────────────────────────┘      │    │
-  │   │   ⚠ THIS is the key design: a worker never pulls a    │    │
-  │   │     URL whose host isn't ready. Politeness is         │    │
-  │   │     structural, not a check bolted on afterwards.     │    │
-  │   └───────────────────────┬──────────────────────────────┘    │
-  └───────────────────────────┼───────────────────────────────────┘
-                               │ consistent hashing by DOMAIN →
-                               │ all URLs for a host go to ONE worker node
-        ┌──────────────────────┼──────────────────────┐
-        ▼                      ▼                      ▼
-  ┌───────────┐          ┌───────────┐          ┌───────────┐
-  │ FETCHER 1 │          │ FETCHER 2 │          │ FETCHER N │
-  └─────┬─────┘          └─────┬─────┘          └─────┬─────┘
-        │                       │                      │
-        │  ┌────────────────────┴──────────────────┐  │
-        │  ▼                                        ▼  │
-        │ ┌──────────────┐              ┌──────────────┐
-        │ │ robots.txt   │              │  DNS CACHE    │
-        │ │ cache (24h)  │              │  ← DNS is a   │
-        │ │ allow/deny + │              │    hidden     │
-        │ │ crawl-delay  │              │    bottleneck;│
-        │ └──────────────┘              │    resolve is │
-        │                                │    slow & syn│
-        │                                └──────────────┘
-        ▼
-  ┌──────────────────────────────────────────────┐
-  │  HTTP FETCH                                   │
-  │   timeout, max size cap, redirect limit (~5), │
-  │   respect ETag/Last-Modified → 304 = free     │
-  └────────────────────┬─────────────────────────┘
-                        ▼
-  ┌──────────────────────────────────────────────┐
-  │  CONTENT DEDUPE                               │
-  │   checksum → exact duplicate?                 │
-  │   simhash  → NEAR-duplicate? (boilerplate,    │
-  │              mirrors, session-id URLs)        │
-  │   if dup → record canonical, DON'T re-extract │
-  └────────────────────┬─────────────────────────┘
-                        ▼
-  ┌──────────────────────────────────────────────┐
-  │  STORE: object storage (compressed HTML)      │
-  │         + metadata row                        │
-  └────────────────────┬─────────────────────────┘
-                        ▼
-  ┌──────────────────────────────────────────────┐
-  │  PARSER / LINK EXTRACTOR                      │
-  │   normalize URLs (lowercase host, strip       │
-  │   fragments, sort query params, resolve       │
-  │   relative paths) ← normalization prevents    │
-  │   millions of "different" identical URLs      │
-  └────────────────────┬─────────────────────────┘
-                        ▼
-  ┌──────────────────────────────────────────────┐
-  │  URL SEEN? — BLOOM FILTER                     │
-  │                                               │
-  │   "definitely not seen"  → enqueue            │
-  │   "probably seen"        → skip               │
-  │                                               │
-  │   100B URLs @ 10 bits ≈ 125 GB, sharded       │
-  │   false positives (~1%) mean we skip a few    │
-  │   real pages — acceptable; false NEGATIVES    │
-  │   are impossible, which is the property we    │
-  │   actually need                               │
-  └────────────────────┬─────────────────────────┘
-                        │ new URLs
-                        └──────────► back to FRONTIER
-
-  ┌──────────────────────────────────────────────┐
-  │  TRAP DETECTION (runs alongside)              │
-  │   · max URL depth / length                    │
-  │   · per-domain page cap                       │
-  │   · calendar/session-id pattern detection     │
-  │   · repeated near-identical content on a host │
-  └──────────────────────────────────────────────┘
-
-  ┌──────────────────────────────────────────────┐
-  │  RECRAWL SCHEDULER                            │
-  │   estimate change frequency from history      │
-  │   → next_crawl_at; re-enqueue when due        │
-  └──────────────────────────────────────────────┘
-```
-
-</details>
-
 The crawler is a loop around the URL Frontier: URLs leave it, pages are fetched and parsed, and new links go back in. Politeness lives inside the frontier, and duplicates are caught twice, once by content and once by URL.
 
 1. Seed URLs enter the front queues, which order work by priority (Q1 high for news and homepages, Q2 medium, Q3 low) through a weighted selector.
@@ -283,5 +170,83 @@ The crawler is a loop around the URL Frontier: URLs leave it, pages are fetched 
 7. The Bloom filter checks every normalized URL. A URL that is definitely not seen goes back into the front queues, and one that is probably seen is discarded.
 
 Two jobs feed the frontier from the side. Trap detection enforces a maximum depth and a per-domain cap and catches calendar and session-id patterns, so runaway URL spaces don't flood the queues. The recrawl scheduler estimates how often each page changes and puts it back into the front queues at its `next_crawl_at`.
+
+<!-- tab: At 100x · 1M pages/s -->
+
+```mermaid
+flowchart TB
+    Seeds([Seed URLs]) --> Assign
+
+    Assign[("Host assignment<br/>host → region near its servers<br/>→ node by consistent hashing")]
+    Assign -.-> Front
+
+    subgraph REGION ["Each crawl region"]
+        direction TB
+        subgraph NODE ["Crawler node · owns a slice of hosts"]
+            direction TB
+            Front["Frontier shard<br/>priority queues + per-host heap<br/>for this node's hosts only"]
+            Polite["Politeness per host AND per IP<br/>shared hosting = one budget<br/>back off per ASN on errors"]
+            Fetch["Async fetchers<br/>thousands of connections per node<br/>ETag / If-Modified-Since"]
+            BloomS{"Bloom shard · local<br/>~1 GB for this node's hosts"}
+            Front --> Polite --> Fetch
+        end
+        DNS[("Recursive resolvers · per region<br/>resolve ahead of fetch time")]
+    end
+    DNS -.-> Fetch
+
+    Fetch --> Parse["Parse · normalize URLs · simhash"]
+    Parse -- "changed content" --> Store[("WARC files · object storage<br/>unchanged simhash → pointer only")]
+    Parse -. "JS-dependent pages" .-> Render["Rendering fleet<br/>separately budgeted"]
+    Parse --> Shuffle["Link shuffle<br/>batch discovered URLs<br/>by the node that owns their host"]
+    Shuffle -- "batches to owner" --> BloomS
+    BloomS -- "definitely not seen" --> Front
+    BloomS -- "probably seen" --> Drop([discard])
+    Recrawl["Recrawl scheduler<br/>freshness vs discovery budget"] -.-> Front
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Assign db
+    class DNS cache
+    class Store blob
+    class Polite,BloomS hot
+    class Assign,Front,Polite,BloomS,DNS,Shuffle,Store scaled
+
+    click Assign href "/docs/03-consistency-and-distributed-systems" "Role: maps each host to a region near its servers, then to a node by consistent hashing.<br/>Trade-off: a host that moves servers keeps its old region until it's reassigned."
+    click Front href "/docs/05-async-messaging-and-event-driven" "Role: priority queues and the per-host heap for this node's hosts only.<br/>Trade-off: moving hosts between nodes means moving their queues too."
+    click Polite href "/docs/08-reliability-and-operations" "Role: politeness budgets per host and per IP, with per-ASN backoff on errors.<br/>Trade-off: many sites sharing one IP crawl slower than each would alone."
+    click BloomS href "/docs/09-specialized-building-blocks" "Role: this node's slice of the seen-set, next to the frontier that uses it.<br/>Trade-off: resharding hosts means rebuilding their filter slices from the URL store."
+    click DNS href "/docs/04-caching" "Role: each region's own recursive resolvers, resolving before fetch time.<br/>Trade-off: resolver fleets to run in every region."
+    click Shuffle href "/docs/05-async-messaging-and-event-driven" "Role: batches discovered URLs by the node that owns their host.<br/>Trade-off: a new link waits for its batch before it can be scheduled."
+    click Store href "/docs/09-specialized-building-blocks" "Role: compressed WARC files for pages whose content actually changed.<br/>Trade-off: reading a page's history means following pointers back to its last change."
+```
+
+Same crawler at 100x the fetch rate: a full pass over 100B known pages in about a day instead of eleven days for 10B. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 100x |
+|---|---|---|
+| Fetch rate | 10k pages/sec | 1M pages/sec |
+| Known pages | 10B | 100B |
+| URLs seen | 100B+ | ~1T |
+| Bloom filter at 10 bits/URL | ~125 GB | ~1.25 TB |
+| Raw ingest | ~85 TB/day | ~8.6 PB/day |
+| Full pass | ~11 days | ~1 day |
+
+**What changes, and the number that forces it**
+
+1. **The frontier is sharded along with its hosts.** One global heap popping 1M URLs/sec becomes a contention point before anything else, as the 10x follow-up warns. Each crawler node owns a slice of hosts by consistent hashing and holds their frontier queues, politeness state and seen-set together. Popping a URL, checking politeness and checking "seen" are all local memory operations.
+2. **The seen-set shards with the frontier.** ~1T URLs at 10 bits each is ~1.25 TB, too much to sit behind a network call for every extracted link. Partitioning the Bloom filter by host puts ~1 GB on each node, right next to the frontier that needs it.
+3. **Discovered links are shuffled in batches.** Most links point at other hosts, which belong to other nodes. The parser groups discovered URLs by owning node and ships them in batches, and the owner does the Bloom check and enqueue. It's a MapReduce-style shuffle, not a network call per link.
+4. **Politeness counts IPs, not just hostnames.** At 1M pages/sec, thousands of small sites on one shared-hosting IP would each get their own "one request at a time" budget and together overwhelm the machine. Budgets apply per host and per IP, and error rates trigger backoff per ASN.
+5. **Crawling runs in several regions.** Fetching a Brazilian site from Virginia adds latency to every request and sees the wrong geo-served content. Hosts are assigned to the region closest to their servers, and each region runs its own recursive resolvers that resolve ahead of fetch time. DNS is otherwise the first thing to break.
+6. **Only changed content is stored.** 8.6 PB/day of raw HTML is mostly pages that didn't change since the last crawl. When a recrawl's simhash matches the stored version, only a pointer and the fetch time are recorded; changed pages are written as compressed WARC files to object storage.
+
+**What stays the same**
+
+The two-level frontier that makes politeness structural, consistent hashing by domain, a Bloom filter that never re-crawls a seen URL, URL normalization, trap detection, conditional requests that make unchanged pages nearly free, and JavaScript rendering on its own smaller fleet. The loop is identical; it's just partitioned so that almost nothing in it crosses the network per URL.
+
+<!-- /tabs -->
 
 ---

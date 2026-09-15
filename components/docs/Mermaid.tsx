@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { useUiStore } from "@/store/useUiStore";
 
 /** Mermaid's theme is set at init, so both palettes are declared up front. */
@@ -78,10 +79,50 @@ function restoreTooltipBreaks() {
   }
 }
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+const ZOOM_STEP = 0.25;
+
+/**
+ * Mermaid sizes a chart as 100% wide, capped at its natural width. Zoom scales
+ * both terms, so 1 is the default fit and the SVG is redrawn crisp at any size.
+ */
+function applyZoom(host: HTMLElement, zoom: number) {
+  const svg = host.querySelector("svg");
+  const natural = svg?.viewBox.baseVal?.width;
+  if (!svg || !natural) return;
+  svg.style.maxWidth = "none";
+  svg.style.width = `min(${natural * zoom}px, ${zoom * 100}%)`;
+}
+
+function ZoomButton({ label, onClick, disabled, children }: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex h-6 w-6 items-center justify-center rounded-sm text-inkMuted transition-colors duration-fast hover:bg-surface hover:text-ink disabled:pointer-events-none disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
+}
+
 export function Mermaid({ chart }: { chart: string }) {
   const theme = useUiStore((s) => s.theme);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  // Read by the render effect, so a theme re-render keeps the current zoom.
+  const zoomRef = useRef(1);
   const reactId = useId();
   const graphId = `mermaid-${reactId.replace(/[:]/g, "")}`;
 
@@ -109,6 +150,7 @@ export function Mermaid({ chart }: { chart: string }) {
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
           decodeLabelEntities(containerRef.current);
+          applyZoom(containerRef.current, zoomRef.current);
           // Attaches node tooltips and links declared with `click` in the chart.
           bindFunctions?.(containerRef.current);
           containerRef.current.querySelectorAll(".node[title]").forEach((node) => {
@@ -127,6 +169,20 @@ export function Mermaid({ chart }: { chart: string }) {
     };
   }, [chart, theme, graphId]);
 
+  function changeZoom(next: number) {
+    const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
+    const scroller = scrollerRef.current;
+    const host = containerRef.current;
+    if (!scroller || !host) return;
+
+    // Keep whatever is in the middle of the view in the middle after resizing.
+    const center = (scroller.scrollLeft + scroller.clientWidth / 2) / scroller.scrollWidth;
+    zoomRef.current = clamped;
+    setZoom(clamped);
+    applyZoom(host, clamped);
+    scroller.scrollLeft = center * scroller.scrollWidth - scroller.clientWidth / 2;
+  }
+
   if (error) {
     return (
       <div className="my-6 rounded border border-rule bg-surface p-4">
@@ -139,8 +195,30 @@ export function Mermaid({ chart }: { chart: string }) {
   }
 
   return (
-    <figure className="my-8 overflow-x-auto rounded border border-rule bg-surface p-5">
-      <div ref={containerRef} className="mermaid-host flex min-h-[3rem] justify-center" />
+    <figure className="relative my-8 rounded border border-rule bg-surface">
+      <div
+        role="toolbar"
+        aria-label="Diagram zoom"
+        className="absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded border border-rule bg-raised p-0.5"
+      >
+        <ZoomButton label="Zoom out" onClick={() => changeZoom(zoom - ZOOM_STEP)} disabled={zoom <= MIN_ZOOM}>
+          <ZoomOut className="h-3.5 w-3.5" aria-hidden />
+        </ZoomButton>
+        <span aria-live="polite" className="min-w-[2.75rem] text-center font-mono text-micro tabular-nums text-inkMuted">
+          {Math.round(zoom * 100)}%
+        </span>
+        <ZoomButton label="Zoom in" onClick={() => changeZoom(zoom + ZOOM_STEP)} disabled={zoom >= MAX_ZOOM}>
+          <ZoomIn className="h-3.5 w-3.5" aria-hidden />
+        </ZoomButton>
+        <ZoomButton label="Reset zoom" onClick={() => changeZoom(1)} disabled={zoom === 1}>
+          <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+        </ZoomButton>
+      </div>
+
+      {/* Top padding clears the toolbar so it never covers the first row of nodes. */}
+      <div ref={scrollerRef} className="overflow-x-auto px-5 pb-5 pt-11">
+        <div ref={containerRef} className="mermaid-host min-h-[3rem]" />
+      </div>
     </figure>
   );
 }

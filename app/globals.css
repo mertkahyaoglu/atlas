@@ -258,8 +258,12 @@
   }
 }
 
-/* Mermaid injects its own <svg>; keep its type in the app's mono face. */
+/* Mermaid injects its own <svg>; keep its type in the app's mono face. Centred
+   with margins rather than flex, so a zoomed chart overflows to the right and
+   stays scrollable instead of being clipped on the left. */
 .mermaid-host svg {
+  display: block;
+  margin-inline: auto;
   max-width: 100%;
   height: auto;
   font-family: var(--font-mono), monospace !important;
@@ -308,7 +312,7 @@
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
 }
 
-/* Collapsed plain-text fallback beneath each rendered diagram. */
+/* Collapsed <details> blocks in doc prose (the concept modules' plain-text diagram fallbacks). */
 @layer components {
   .doc details {
     @apply my-6 max-w-none rounded border border-rule bg-surface;

@@ -133,6 +133,8 @@ TTL-based expiry is worth pointing out: the counters garbage-collect themselves,
 
 ## High-level architecture
 
+<!-- tab: Today · 1M req/s -->
+
 ```mermaid
 flowchart TB
     Clients([Clients]) --> Scrub["CDN · L3/L4 scrubbing<br/>volumetric attacks die here"]
@@ -174,71 +176,6 @@ flowchart TB
     click Redis href "/docs/04-caching" "Role: the shared counter every gateway checks, atomically through one Lua script.<br/>Trade-off: a network hop on every request, and if it fails you must pick fail-open or fail-closed."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-                        ┌────────────────────────────┐
-  [Clients] ──────────► │  CDN / L3-L4 DDoS scrubbing │ (volumetric attacks die here)
-                        └─────────────┬──────────────┘
-                                       ▼
-                        ┌────────────────────────────┐
-                        │      Load Balancer          │
-                        └─────────────┬──────────────┘
-          ┌────────────────────────────┼────────────────────────────┐
-          ▼                            ▼                            ▼
-  ┌───────────────┐            ┌───────────────┐            ┌───────────────┐
-  │ API GATEWAY 1 │            │ API GATEWAY 2 │            │ API GATEWAY N │
-  │               │            │               │            │               │
-  │ ┌───────────┐ │            │ ┌───────────┐ │            │ ┌───────────┐ │
-  │ │ L1: local │ │            │ │ L1: local │ │            │ │ L1: local │ │
-  │ │ in-memory │ │            │ │ in-memory │ │            │ │ in-memory │ │
-  │ │ bucket    │ │            │ │ bucket    │ │            │ │ bucket    │ │
-  │ │ (fast     │ │            │ │           │ │            │ │           │ │
-  │ │  path)    │ │            │ │           │ │            │ │           │ │
-  │ └─────┬─────┘ │            │ └─────┬─────┘ │            │ └─────┬─────┘ │
-  └───────┼───────┘            └───────┼───────┘            └───────┼───────┘
-          │                            │                            │
-          │  L2: sync to shared state (batched / on threshold)      │
-          └────────────┬───────────────┴────────────┬───────────────┘
-                       ▼                            ▼
-          ┌──────────────────────────────────────────────────┐
-          │       REDIS CLUSTER (sharded by identity hash)     │
-          │                                                    │
-          │   Lua script = ATOMIC check-and-decrement          │
-          │   ┌──────────────────────────────────────────┐    │
-          │   │ local tokens = redis.call(GET, key)       │    │
-          │   │ refill based on elapsed time              │    │
-          │   │ if tokens >= 1 then                       │    │
-          │   │    decrement; return ALLOW                │    │
-          │   │ else return DENY, retry_after             │    │
-          │   └──────────────────────────────────────────┘    │
-          │   (single round trip, no read-modify-write race)   │
-          └────────────────────┬─────────────────────────────┘
-                               │
-                    ┌──────────┴──────────┐
-              ALLOW │                      │ DENY
-                    ▼                      ▼
-        ┌──────────────────┐     ┌───────────────────────┐
-        │ forward to        │     │  429 Too Many Requests │
-        │ backend services  │     │  Retry-After: 30       │
-        └──────────────────┘     │  X-RateLimit-*         │
-                                  └───────────────────────┘
-
-                  ┌────────────────────────────────────┐
-                  │  CONFIG SERVICE (rules)             │
-                  │  pushed/polled to gateways, cached  │
-                  │  locally w/ safe defaults on failure│
-                  └────────────────────────────────────┘
-
-        ══ FAILURE MODE ══
-        Redis unreachable → FAIL OPEN on local bucket only
-        (serve traffic, log, alert) — protecting availability
-        over perfect enforcement. State this choice explicitly.
-```
-
-</details>
-
 Limits are enforced in two layers inside the API gateway fleet: an L1 local bucket in every gateway, and a Redis cluster that holds the shared count. Volumetric attacks are dropped before traffic reaches either layer.
 
 1. Client traffic first passes CDN L3/L4 scrubbing, and the Load balancer spreads what is left across the gateways.
@@ -248,5 +185,85 @@ Limits are enforced in two layers inside the API gateway fleet: an L1 local buck
 5. If the bucket, as of its last sync, has a token, the request is allowed and goes to Backend services. If not, the gateway returns 429 Too Many Requests with `Retry-After` and the `X-RateLimit-*` headers.
 
 Two flows run beside the request path. The Config service distributes rule changes to the gateways, which cache them and fall back to safe defaults when it is unreachable, so a limit can change without a deploy. The dotted edge from Redis to Backend services is the failure path: when Redis is unreachable, gateways keep enforcing their local buckets, let traffic through, and log and alert.
+
+<!-- tab: At 100x · 100M req/s -->
+
+```mermaid
+flowchart TB
+    Clients([Clients worldwide]) --> Scrub
+
+    subgraph POP ["Edge PoP · ~300 locations"]
+        direction TB
+        Scrub["L3/L4 scrubbing + WAF"]
+        EdgeLimit["Edge limiter<br/>per-IP buckets, local state only<br/>floods rejected where they land"]
+        Scrub --> EdgeLimit
+    end
+
+    EdgeLimit --> LB["Regional LB<br/>nearest of ~20 regions"]
+    LB --> Sketch
+
+    subgraph GATEWAYS ["API gateway fleet · per region"]
+        direction TB
+        Sketch["Heavy-hitter sketch<br/>count-min per gateway<br/>most keys never near a limit"]
+        Local["L1 local bucket<br/>only for keys above ~50% of limit"]
+        Sketch -- "promote heavy hitters" --> Local
+    end
+
+    Local -- "L2 · batched sync" --> Redis[("Redis cluster · per region<br/>sharded by identity · Lua atomic<br/>biggest tenants on own shards")]
+    Quota[("Global quota service<br/>leases each region a share<br/>of every global limit")] -- "rebalance every few sec" --> Redis
+
+    Redis --> Verdict{"tokens available?"}
+    Verdict -- "allow" --> Backend[Backend services]
+    Verdict -- "deny" --> Reject["429 Too Many Requests<br/>Retry-After · X-RateLimit-*"]
+    Redis -. "unreachable → FAIL OPEN<br/>on local bucket only" .-> Backend
+
+    Config[("Rule sets · versioned<br/>pushed to PoPs and gateways<br/>shadow mode, then region by region")] -.-> EdgeLimit & Sketch
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
+    classDef lb fill:#5d3759,stroke:#e066b2,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Config,Quota db
+    class Redis cache
+    class Scrub,EdgeLimit external
+    class Sketch,Local gateway
+    class LB lb
+    class Quota hot
+    class EdgeLimit,LB,Sketch,Local,Redis,Quota,Config scaled
+
+    click EdgeLimit href "/docs/08-reliability-and-operations" "Role: per-IP buckets in each CDN PoP, rejecting floods and scrapers where they land.<br/>Trade-off: local state only, so an attack spread thinly across PoPs is caught further in."
+    click Sketch href "/docs/09-specialized-building-blocks" "Role: a count-min sketch per gateway that spots the keys approaching their limits.<br/>Trade-off: approximate, so a key that bursts inside one window slips through briefly."
+    click Local href "/docs/07-apis-and-communication" "Role: real token buckets, only for keys the sketch flags.<br/>Trade-off: a newly promoted key is enforced with less history at first."
+    click Redis href "/docs/04-caching" "Role: shared counts per region, sharded by identity with atomic Lua checks.<br/>Trade-off: global limits are only as exact as the quota leases allow."
+    click Quota href "/docs/03-consistency-and-distributed-systems" "Role: splits each global limit into regional shares, rebalanced by demand every few seconds.<br/>Trade-off: overshoot is bounded by regions × lease slack, not zero."
+    click Config href "/docs/08-reliability-and-operations" "Role: versioned rule sets pushed everywhere and rolled out gradually.<br/>Trade-off: a push pipeline to run, in exchange for no polling storm and a clean rollback."
+```
+
+Same limiter at 100x the traffic, which is roughly what the largest edge networks see. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 100x |
+|---|---|---|
+| Requests | 1M/sec | 100M/sec |
+| Active identities | ~50M | ~1B |
+| Bucket state if every key had one | ~2.5 GB | ~50 GB |
+| Redis syncs, one per ~100 requests | ~10k/sec | ~1M/sec |
+| Where traffic lands | a few regions | ~300 edge PoPs, ~20 regions |
+
+**What changes, and the number that forces it**
+
+1. **Per-IP limits move to the edge.** At 100M requests/sec a large share of traffic is abusive, and hauling it to a region just to reject it pays for bandwidth and gateway capacity twice. Coarse per-IP buckets run in the CDN's edge PoPs with local state only, so floods and scrapers are rejected where they land. Per-key and per-user limits stay in the regions, where identity is known.
+2. **Most keys stop getting a bucket.** Of ~1B active identities, the vast majority never come near their limit, yet each bucket would cost memory and a stream of Redis syncs. Each gateway runs a count-min sketch to spot heavy hitters, and only keys above ~50% of their limit get a real token bucket and join the sync. Sync volume now tracks the keys that matter, not all of them. A key that jumps from idle to over-limit inside one sketch window slips through briefly, which the bounded-overshoot contract already allows.
+3. **Redis goes regional, and global limits become leases.** One Redis for a global limit would put a cross-region round trip in every sync. Each region runs its own cluster, and a global quota service leases each region a share of every global limit, rebalanced every few seconds by observed demand. Overshoot is bounded by `regions × lease slack`, a number you can still compute and state. Correctness-critical limits ("one free trial per account") stay exact by checking one home region synchronously.
+4. **The biggest tenants get their own shards.** At 100x, a single large customer sends more traffic than whole regions did before. Their keys live on dedicated Redis shards (or sub-buckets `key#0..#N`), so one tenant's burst can't raise latency for everyone sharing a shard.
+5. **Rules are pushed as versions, not polled.** 30-second polling from ~300 PoPs and thousands of gateways is a load pattern of its own, and a bad rule would reach everywhere at once. Rule sets become versioned artifacts, pushed through the same channel as edge config, run in shadow mode, then rolled out region by region.
+
+**What stays the same**
+
+Token bucket as the default algorithm, Lua scripts for atomic check-and-decrement, identity-sharded Redis, fail open on local buckets while alerting, 429 with `Retry-After`, and layered limits: IP at the edge, API key at the gateway, user at the service. What changes is where each layer runs and how much state it bothers to keep.
+
+<!-- /tabs -->
 
 ---

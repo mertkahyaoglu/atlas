@@ -120,6 +120,8 @@ The `chunks` table being global and keyed by content hash is the whole dedupe st
 
 ## High-level architecture
 
+<!-- tab: Today · 1 PB/day -->
+
 ```mermaid
 flowchart TB
     subgraph CLIENT ["Client · desktop or mobile"]
@@ -153,111 +155,6 @@ flowchart TB
     click Blob href "/docs/09-specialized-building-blocks" "Role: stores each unique chunk once, shared across all users.<br/>Trade-off: dedupe saves storage, but deletes need refcounts and lazy garbage collection."
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                        CLIENT (desktop/mobile)                    │
-  │                                                                   │
-  │  ┌──────────────┐   file changed on disk                          │
-  │  │ WATCHER      │────────────────┐                                │
-  │  │ (fs events)  │                 ▼                               │
-  │  └──────────────┘   ┌────────────────────────────────────┐        │
-  │                      │  CHUNKER — content-defined boundary│        │
-  │                      │  (Rabin fingerprint, not fixed     │        │
-  │                      │   offsets)                          │        │
-  │                      │                                     │        │
-  │                      │  FIXED-SIZE (naive):                │        │
-  │                      │   insert 1 byte at start →          │        │
-  │                      │   [c1][c2][c3][c4] ALL SHIFT →      │        │
-  │                      │   every chunk hash changes → re-    │        │
-  │                      │   upload entire file. BAD.          │        │
-  │                      │                                     │        │
-  │                      │  CONTENT-DEFINED:                   │        │
-  │                      │   boundaries follow CONTENT, so     │        │
-  │                      │   [c1][c2'][c3][c4] — only c2       │        │
-  │                      │   changes. Upload 1 chunk. GOOD.    │        │
-  │                      └────────────┬───────────────────────┘        │
-  │                                    ▼                                │
-  │                      ┌────────────────────────────────────┐        │
-  │                      │  HASH each chunk (SHA-256)          │        │
-  │                      └────────────┬───────────────────────┘        │
-  │  ┌──────────────┐                 │                                │
-  │  │ LOCAL INDEX  │◄────────────────┘                                │
-  │  │ path→chunks  │                                                   │
-  │  └──────────────┘                                                   │
-  └────────────────────────────┬────────────────────────────────────────┘
-                                │ 1. POST /prepare  {chunk_hashes[]}
-                                ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                      METADATA SERVICE                              │
-  │   · which of these hashes do we already have?                      │
-  │   · returns ONLY the missing ones  ← DEDUPE HAPPENS HERE           │
-  │   · authorization, quota, path validation                          │
-  └───────┬──────────────────────────────────────────┬────────────────┘
-           │ 2. presigned URLs for missing chunks only │
-           ▼                                            ▼
-  ┌──────────────────────────┐              ┌─────────────────────────┐
-  │  OBJECT STORAGE (S3)      │              │  METADATA DB            │
-  │  key = chunk_hash          │              │  files / versions /     │
-  │  content-addressed →       │              │  chunks / journal       │
-  │  identical chunk stored    │              │  sharded by user_id     │
-  │  ONCE globally             │              │  (all of a user's data  │
-  │                            │              │   on one shard = cheap  │
-  │  client uploads DIRECTLY,  │              │   transactional deltas) │
-  │  in parallel, resumable    │              └───────────┬─────────────┘
-  └──────────────────────────┘                            │
-           │ 3. POST /commit {ordered chunk list}         │
-           └───────────────────────┬──────────────────────┘
-                                    ▼
-                        ┌───────────────────────────┐
-                        │  append to user's JOURNAL  │
-                        │  seq++ , file_id, version  │
-                        └────────────┬──────────────┘
-                                      ▼
-                        ┌───────────────────────────┐
-                        │  NOTIFICATION SERVICE      │
-                        │  long-poll or WS per device│
-                        │  "you have changes"        │
-                        │  (no payload — just a poke)│
-                        └────────────┬──────────────┘
-                                      ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                      OTHER DEVICES                                 │
-  │   GET /delta?cursor=<last_seq>                                     │
-  │     → list of changed files + their chunk lists                    │
-  │   diff against LOCAL index → determine missing chunks              │
-  │   download ONLY those chunks from CDN/object storage               │
-  │   reassemble → write to disk → advance cursor                      │
-  └──────────────────────────────────────────────────────────────────┘
-
-  ═══════════════ CONFLICT (both edit offline) ═══════════════
-
-   Device A (offline)          Device B (offline)
-    edits report.docx           edits report.docx
-         │                            │
-         └──────── both reconnect ────┘
-                       ▼
-        ┌──────────────────────────────────┐
-        │ commit carries BASE VERSION       │
-        │ first to arrive wins → v5          │
-        │ second's base (v4) ≠ current (v5)  │
-        │   → CONFLICT                       │
-        │                                    │
-        │ Resolution: KEEP BOTH              │
-        │   report.docx            (v5)      │
-        │   report (B's conflicted copy).docx│
-        │                                    │
-        │ ⚠ Never silently discard a user's  │
-        │   work. Merging arbitrary binaries │
-        │   is impossible; surfacing both is │
-        │   the only honest answer.          │
-        └──────────────────────────────────┘
-```
-
-</details>
-
 Sync is split three ways: the client turns file changes into hashed chunks, the Metadata Service decides which chunks are missing and records versions, and object storage holds the bytes. Other devices find out about changes through the user's journal and a notification poke.
 
 1. The filesystem watcher sees a change. The content-defined chunker splits the file into chunks of about 4 MB, the client hashes each one with SHA-256 and updates its local index, and then it sends the hashes with `POST /prepare`. The Metadata Service checks auth, quota and the path, and returns only the hashes it doesn't already have.
@@ -267,5 +164,69 @@ Sync is split three ways: the client turns file changes into hashed chunks, the 
 5. Each device calls `GET /delta?cursor=last_seq`, compares the changes with its local index, downloads only the chunks it lacks, reassembles the file and advances its cursor.
 
 The conflict branch applies to a device that edited the same file while offline. Its commit carries the base version it started from. If that is still the current version, the change is applied. If not, both files are kept: `report.docx` and `report (conflicted copy).docx`. In the background, object storage keeps a refcount on every chunk and deletes unreferenced chunks lazily.
+
+<!-- tab: At 10x · 10 PB/day -->
+
+```mermaid
+flowchart TB
+    Client["Client · content-defined chunker<br/>~4 MB chunks · SHA-256 each"] -- "1 · POST /prepare<br/>with chunk hashes" --> Meta["Metadata service · regional<br/>auth · quota · path validation"]
+    Meta --> Filter{"per-shard Bloom filter<br/>chunk definitely new?"}
+    Filter -- "maybe exists" --> ChunkIdx[("Chunk index<br/>sharded by hash prefix<br/>trillions of entries")]
+    Filter -- "definitely new · skip lookup" --> Upload
+    ChunkIdx -- "missing hashes" --> Upload["2 · presigned URLs<br/>missing chunks only"]
+    Upload --> Blocks[("Owned block storage · erasure-coded<br/>hot → cold tiers by last access<br/>nearest region, replicated async")]
+
+    Meta -- "3 · commit ordered chunk list" --> NS[("Metadata · sharded by NAMESPACE<br/>a user's private root, or one shared folder<br/>files · versions · journal together")]
+    NS --> Journal["Journal per namespace<br/>seq++ on commit"]
+    Journal --> Notify["Notification fleet<br/>~6B device long-polls<br/>pokes coalesced per namespace"]
+    Notify --> Devices["Other devices<br/>GET /delta per namespace cursor<br/>download only missing chunks"]
+    Devices --> Conflict{"commit's base version<br/>still current?"}
+    Conflict -- "yes" --> Applied([applied])
+    Conflict -- "no" --> Keep["KEEP BOTH<br/>conflicted copy"]
+
+    NS -. "live chunk lists" .-> GC["Mark-and-sweep GC<br/>scan shard by shard for live chunks<br/>delete the rest after a grace period"]
+    GC -.-> Blocks
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class ChunkIdx,NS db
+    class Blocks blob
+    class NS hot
+    class Filter,ChunkIdx,Blocks,NS,Journal,Notify,GC scaled
+
+    click Filter href "/docs/09-specialized-building-blocks" "Role: per-shard Bloom filters that answer 'definitely new' for fresh chunks.<br/>Trade-off: false positives still cost an index lookup, but never a missed dedupe."
+    click ChunkIdx href "/docs/02-data-storage" "Role: the global chunk-hash index, sharded by hash prefix.<br/>Trade-off: every prepare becomes a batch of lookups across many shards."
+    click Blocks href "/docs/09-specialized-building-blocks" "Role: chunk bytes on owned, erasure-coded storage with hot and cold tiers.<br/>Trade-off: running your own storage fleet instead of renting one."
+    click NS href "/docs/02-data-storage" "Role: files, versions and journal per namespace, each namespace on one shard.<br/>Trade-off: a device follows one cursor per namespace it can see."
+    click Journal href "/docs/05-async-messaging-and-event-driven" "Role: a monotonic change feed per namespace.<br/>Trade-off: someone in thousands of shared folders has thousands of feeds, so pokes decide which to read."
+    click Notify href "/docs/07-apis-and-communication" "Role: holds billions of device long-polls and coalesces pokes per namespace.<br/>Trade-off: millions of idle connections per server to keep alive."
+    click GC href "/docs/08-reliability-and-operations" "Role: finds live chunks by scanning chunk lists, then deletes the rest after a grace period.<br/>Trade-off: space comes back days later instead of immediately."
+```
+
+Same product at 10x the data. 100x would mean more users than there are people, so this tab uses 10x the bytes and about 4x the users, with far larger shared workspaces. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 10x |
+|---|---|---|
+| Users | 500M | ~2B |
+| Devices | ~1.5B | ~6B |
+| Files | 100B | ~1T |
+| Uploads | 1 PB/day | 10 PB/day |
+| Largest shared folder | a team | a company of 100k+ people |
+
+**What changes, and the number that forces it**
+
+1. **Metadata shards by namespace, not by user.** Sharding by `user_id` assumed a user's files live with that user. At 10x, much of the data sits in shared folders used by tens of thousands of people at one company, and the "reference plus subscription" approach turns every commit into a fan-out across huge member lists. A namespace (a user's private root, or one shared folder) becomes the unit: its files, versions and journal live on one shard, a commit is still a single-shard transaction, and each device keeps one cursor per namespace it can see.
+2. **The chunk index gets its own shards and a filter.** The global `chunks` table grows to trillions of entries and sits behind every `/prepare`. It's sharded by hash prefix (hashes are uniform, so there are no hot spots), and a Bloom filter on each shard answers "definitely new" for fresh content, so a brand-new video upload skips thousands of index lookups.
+3. **Bytes move onto owned storage.** At 10 PB/day, renting object storage becomes one of the largest bills in the company. Chunks go to owned block storage with erasure coding (far less overhead than 3x replication), and chunks untouched for a year move to denser, higher-ratio codes; this is roughly the path Dropbox took with its own storage system. Uploads land in the nearest region, erasure-coded across its zones, and replicate to a second region asynchronously.
+4. **Refcounts give way to mark-and-sweep.** Updating a global refcount on every commit and delete means a cross-shard write for every shared chunk, and one lost decrement leaks space while one doubled decrement deletes live data. Instead, a collector scans live chunk lists shard by shard, builds the live set, and deletes chunks that are absent from it and older than a generous grace period. It reclaims space slower, but it can only err toward keeping garbage.
+5. **Notification becomes its own fleet.** ~6B devices holding long-polls means millions of idle connections per server. A dedicated notification fleet tracks which devices wait on which namespaces and coalesces pokes, so a burst of 500 commits to one team folder still produces a single poke per device.
+
+**What stays the same**
+
+Content-defined chunking so an edit only re-uploads the chunk it touches, content addressing by SHA-256, presigned direct uploads of missing chunks only, delta sync from a cursor, a notification that pokes rather than carries data, "keep both" on conflict, and soft deletes with a restore window. Metadata is still the hot path and bytes are still the volume problem; each just got its own dedicated scaling story.
+
+<!-- /tabs -->
 
 ---

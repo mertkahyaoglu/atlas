@@ -129,6 +129,8 @@ membership || || node → alive | suspect | dead || gossip-propagated
 
 ## High-level architecture
 
+<!-- tab: Today · 10M ops/s -->
+
 ```mermaid
 flowchart TB
     subgraph APP ["Application servers"]
@@ -165,101 +167,6 @@ flowchart TB
     class Ring,HotKey hot
 ```
 
-<details>
-<summary>Plain-text version of this diagram</summary>
-
-```text
-  ┌──────────────────────────────────────────────────────────────┐
-  │                    APPLICATION SERVERS                         │
-  │                                                                │
-  │   ┌────────────────────────────────────────────────────┐      │
-  │   │  SMART CLIENT (library)                             │      │
-  │   │   · holds a copy of the ring                        │      │
-  │   │   · hashes key → picks node → direct connection     │      │
-  │   │   · NO PROXY HOP  ← lowest latency                  │      │
-  │   │   · retries/failover on node error                  │      │
-  │   │   · optional tiny L1 in-process cache for hot keys  │      │
-  │   └───────────────────┬────────────────────────────────┘      │
-  └───────────────────────┼───────────────────────────────────────┘
-                           │  key "user:1234" → hash → 0x8A3F…
-                           ▼
-  ┌───────────────────────────────────────────────────────────────┐
-  │                   CONSISTENT HASHING RING                       │
-  │                                                                 │
-  │                        0 / 2^32                                 │
-  │                            │                                    │
-  │              ┌─────────────┼─────────────┐                      │
-  │        N3-v7 │             │             │ N1-v2                │
-  │              │      ● key "user:1234"    │                      │
-  │        N2-v4 │             │             │ N4-v9                │
-  │              │             │             │                      │
-  │        N1-v5 │             │             │ N3-v1                │
-  │              └─────────────┼─────────────┘                      │
-  │                       N2-v8│N4-v3                               │
-  │                                                                 │
-  │   key belongs to the FIRST node CLOCKWISE from its hash         │
-  │                                                                 │
-  │   VIRTUAL NODES: each physical node placed at ~150 ring         │
-  │   positions. Without them, 4 random placements give wildly      │
-  │   uneven arcs → uneven load. Averaging over 150 smooths it,     │
-  │   and lets bigger machines take MORE vnodes (weighting).        │
-  │                                                                 │
-  │   ┌─────────────────────────────────────────────────────┐      │
-  │   │ ADD A NODE:                                          │      │
-  │   │   hash % N  →  ~80% of keys remap. CATASTROPHE.      │      │
-  │   │   consistent hashing → only ~1/N keys remap,         │      │
-  │   │   and only from the ONE neighbour clockwise.         │      │
-  │   │   ← this is the entire reason the ring exists        │      │
-  │   └─────────────────────────────────────────────────────┘      │
-  └───────────┬──────────────┬──────────────┬─────────────────────┘
-               ▼              ▼              ▼
-     ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-     │   NODE 1      │ │   NODE 2      │ │   NODE N      │
-     │               │ │               │ │               │
-     │ ┌───────────┐ │ │ ┌───────────┐ │ │ ┌───────────┐ │
-     │ │ HASH MAP  │ │ │ │ HASH MAP  │ │ │ │ HASH MAP  │ │
-     │ │ key→node* │ │ │ │           │ │ │ │           │ │
-     │ └─────┬─────┘ │ │ └───────────┘ │ │ └───────────┘ │
-     │       ▼        │ │               │ │               │
-     │ ┌───────────┐ │ │               │ │               │
-     │ │ LRU LIST  │ │ │               │ │               │
-     │ │ MRU◄─►LRU │ │ │               │ │               │
-     │ │ evict from│ │ │               │ │               │
-     │ │ tail when │ │ │               │ │               │
-     │ │ full      │ │ │               │ │               │
-     │ └───────────┘ │ │               │ │               │
-     │               │ │               │ │               │
-     │ single-thread │ │               │ │               │
-     │ command exec  │ │               │ │               │
-     │ → atomic ops, │ │               │ │               │
-     │   no locks    │ │               │ │               │
-     │ ⚠ one slow    │ │               │ │               │
-     │   command     │ │               │ │               │
-     │   blocks ALL  │ │               │ │               │
-     └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-             │                 │                 │
-             │  replica        │  replica        │
-             ▼                 ▼                 ▼
-     ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-     │  N1 replica   │ │  N2 replica   │ │  Nn replica   │
-     │  (async)      │ │               │ │               │
-     └──────────────┘ └──────────────┘ └──────────────┘
-
-  ┌───────────────────────────────────────────────────────────────┐
-  │  MEMBERSHIP / FAILURE DETECTION (gossip, SWIM-style)            │
-  │   nodes randomly probe peers; suspicion → confirmation →        │
-  │   dead. Ring update propagates to clients.                      │
-  │   ⚠ Avoid false positives: prematurely evicting a healthy node  │
-  │     causes a needless mass remap and an origin stampede.        │
-  └───────────────────────────────────────────────────────────────┘
-
-  ═══════════════ ON A MISS ═══════════════
-        client → cache MISS → origin database → SET back
-        ⚠ this is where stampede/penetration/avalanche bite
-```
-
-</details>
-
 There is no proxy tier: a smart client library inside each application server routes every request straight to a cache node. The origin database sits behind the nodes and is only read on a miss.
 
 1. The application calls the smart client, which hashes the key, such as `user:1234`, against its own copy of the ring. Before that, it can answer the hottest keys from its optional tiny L1 cache.
@@ -270,5 +177,78 @@ There is no proxy tier: a smart client library inside each application server ro
 6. On a MISS, the value is read from the origin database and SET back into the same node, so the next read for that key hits.
 
 Two flows run beside the request path. Each node streams writes asynchronously to its own replica, and membership uses gossip in the SWIM style, moving a node through suspicion and confirmation before declaring it dead and changing the ring the clients use. The stampede, penetration and avalanche failure modes all surface at the miss path, as extra load on the origin database.
+
+<!-- tab: At 100x · 1B ops/s -->
+
+```mermaid
+flowchart TB
+    subgraph HOST ["Each application host · ~100k of them"]
+        direction TB
+        App[Application]
+        L1["In-process L1<br/>auto-detected hot keys"]
+        Sidecar["Local routing proxy · sidecar<br/>ring + pools + pooled connections<br/>one localhost hop"]
+        App --> L1 --> Sidecar
+    end
+    Config[("Config service · ring authority<br/>rate-limited membership changes<br/>gossip only reports liveness")] -.-> Sidecar
+    HotKeys["Hot key detector<br/>samples traffic at the sidecar<br/>spreads hot keys as suffixed copies"] -.-> L1
+
+    Sidecar -- "pool chosen by key prefix" --> P1 & P2 & P3
+    subgraph POOLS ["Cache pools by workload · ~800 primaries × 128 GB, plus replicas"]
+        direction LR
+        P1["Small hot keys"]
+        P2["Large values"]
+        P3["General"]
+    end
+
+    Sidecar -. "target node down:<br/>no rehash" .-> Gutter["Gutter pool<br/>takes a dead node's traffic<br/>short TTL · ring unchanged"]
+    P3 -- "MISS" --> Warm["Warm-up path<br/>only while a cluster is cold:<br/>read a warm cluster first"]
+    Warm --> Origin[("Origin database · per region")]
+    Origin -- "replication stream" --> Invalidate["Invalidation daemon · per region<br/>deletes keys from DB changes"]
+    Invalidate -.-> P1 & P2 & P3
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    classDef scaled stroke-dasharray:5 3
+    class Origin,Config db
+    class L1,P1,P2,P3,Gutter cache
+    class Sidecar,Gutter hot
+    class L1,Sidecar,Config,HotKeys,P1,P2,P3,Gutter,Warm,Invalidate scaled
+
+    click L1 href "/docs/04-caching" "Role: a tiny in-process cache for keys the detector flags as hot.<br/>Trade-off: per-host copies can briefly disagree after a write."
+    click Sidecar href "/docs/07-apis-and-communication" "Role: routes every request over one localhost hop and pools connections to the nodes.<br/>Trade-off: a process on every host to deploy and keep healthy."
+    click Config href "/docs/03-consistency-and-distributed-systems" "Role: the authority for ring membership, applying changes at a limited rate.<br/>Trade-off: a dead node stays in the ring a little longer, which the gutter pool covers."
+    click HotKeys href "/docs/04-caching" "Role: finds hot keys by sampling and spreads each across several nodes.<br/>Trade-off: a write to a hot key has to update every copy."
+    click P1 href "/docs/04-caching" "Role: pools sized and tuned per workload, so eviction patterns don't collide.<br/>Trade-off: capacity is split, so one pool can be full while another has room."
+    click Gutter href "/docs/08-reliability-and-operations" "Role: absorbs a failed node's traffic without remapping the ring.<br/>Trade-off: values served from the gutter can be a few seconds stale."
+    click Warm href "/docs/08-reliability-and-operations" "Role: fills a cold cluster from a warm one before touching the database.<br/>Trade-off: the warm cluster carries extra read load during warm-up."
+    click Invalidate href "/docs/03-consistency-and-distributed-systems" "Role: deletes cached keys from the database's own change stream, in every region.<br/>Trade-off: invalidation lags writes by the replication delay."
+```
+
+Same cache at 100x. A billion operations a second is the order of magnitude the largest social networks push through their cache tier. Dashed outlines mark what's new or reshaped compared with today's design.
+
+| | Today | At 100x |
+|---|---|---|
+| Operations | 10M/sec | 1B/sec |
+| Hot data set | 1 TB | 100 TB |
+| Keys | ~1B | ~100B |
+| Cache nodes | ~100 × 16 GB | ~800 primaries × 128 GB, plus replicas |
+| Connections if every host dials every node | ~100k | ~80M |
+
+**What changes, and the number that forces it**
+
+1. **Smart clients give way to a local sidecar.** The smart client's advantage was one hop. At ~100k application hosts and ~800 nodes, every process dialing every node means ~80M connections, and every ring change has to reach client libraries in every language. A routing proxy on each host keeps the latency argument (one localhost hop, pooled connections to the nodes) while keeping ring logic in one place. This is the shape Meta's mcrouter took: the client-versus-proxy trade-off flips at this size.
+2. **One cluster splits into pools by workload.** Tiny hot keys, large values and everything else behave very differently under eviction, and at 100 TB one team's churn evicts another team's data. The sidecar picks a pool by key prefix, and each pool is sized and tuned for its workload.
+3. **A gutter pool catches failed nodes.** With ~1,600 nodes, something is always failing. Rehashing a dead node's keys onto its neighbours dumps its load on nodes that may then fail too. Instead, requests whose node is down go to a small gutter pool with short TTLs, and the ring doesn't change until the node is confirmed gone. Values served from the gutter can be a few seconds stale.
+4. **The ring gets an authority.** Gossip across ~1,600 nodes converges slowly, and a flapping node triggers remaps back and forth. A config service owns ring membership and rate-limits changes, while gossip only feeds it liveness hints. This is the false-positive cascade follow-up, answered structurally.
+5. **Hot keys are found automatically.** At 1B operations/sec some key is always hot, and nobody knows which one in advance. The sidecar samples traffic, flags keys over a threshold and spreads them across several nodes as suffixed copies; the hottest also land in each host's in-process L1.
+6. **Invalidation comes from the database, per region.** With hundreds of services writing, the application can't be trusted to delete every affected key. A daemon in each region tails the database's replication stream and deletes keys from it: the change-data-capture answer from the invalidation trade-off, applied everywhere.
+7. **New clusters warm from warm ones.** A cold cluster at this size would stampede its database. While cold, it reads misses from a warm cluster first and only then from the origin, until its hit rate catches up.
+
+**What stays the same**
+
+Consistent hashing with virtual nodes (now inside the sidecar), a cache that's never the source of truth, LRU plus TTL, the stampede, penetration and avalanche fixes, deleting keys rather than setting them on invalidation, and independent clusters per region. Hit rate is still the number everything else serves.
+
+<!-- /tabs -->
 
 ---

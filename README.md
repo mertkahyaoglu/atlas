@@ -78,9 +78,8 @@ copyable code block. Mermaid is dynamically imported so its ~500 KB stays out of
 initial bundle, and it re-renders when the theme changes.
 
 Each design's architecture diagram is written directly in its markdown, under
-`## High-level architecture`. A collapsed `<details>` block beneath it holds a
-plain-text version of the same diagram, so update the two together. Hover tooltips
-come from Mermaid `click` lines that link a node to a concept module:
+`## High-level architecture`. Hover tooltips come from Mermaid `click` lines that
+link a node to a concept module:
 
 ```text
 click Node href "/docs/05-async-messaging-and-event-driven" "Role: …<br/>Trade-off: …"
@@ -117,6 +116,22 @@ These are flat hex, not `var(--token)` or `rgba(...)` — Mermaid's `classDef` g
 parses the style string itself and rejects any value with parentheses in it, so both
 fail to parse. That also means these colours don't adapt to the light theme; they're
 picked to still read fine there since dark is this app's default.
+
+A design's `## High-level architecture` can also show how the design changes at a
+higher scale, as a second tab. `lib/tabs.ts` splits the body on comment markers; each
+marker starts a tab, and the part of a label after ` · ` renders as a muted note:
+
+```markdown
+<!-- tab: Today · ~200 msg/s -->
+…today's diagram and walkthrough…
+<!-- tab: At 100x · ~20k msg/s -->
+…the scaled diagram and what changes…
+<!-- /tabs -->
+```
+
+Keep headings out of tabs, since the table of contents would link into a hidden panel.
+In the scaled diagram, layer `classDef scaled stroke-dasharray:5 3` on nodes that are
+new or reshaped compared with today's design, the same way `hot` layers on a type.
 
 ## Design notes
 
