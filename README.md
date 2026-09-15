@@ -1,7 +1,7 @@
 # System Design Atlas
 
-A reading app for twenty-five system design documents: ten concept modules built from
-the ground up, and fifteen worked designs with rendered architecture diagrams.
+A reading app for twenty-six system design documents: ten concept modules built from
+the ground up, and sixteen worked designs with rendered architecture diagrams.
 
 ## Running it
 
@@ -42,11 +42,7 @@ store/
   useFilterStore.ts       query, tags, sort
 content/
   concepts/*.md           ten modules
-  designs/*.md            fifteen designs
-scripts/
-  add-frontmatter.py      writes frontmatter from a metadata map
-  convert-diagrams.py     swaps ASCII architecture blocks for Mermaid
-  diagrams/               the Mermaid sources, split three ways
+  designs/*.md            sixteen designs
 ```
 
 ## Adding a document
@@ -57,7 +53,7 @@ scripts/
 ```yaml
 ---
 group: "design"
-order: 16
+order: 17
 title: "Design a Feature Flag Service"
 summary: "One line shown on the card and in search results."
 hardPart: "Designs only. What the interviewer is actually testing."
@@ -67,12 +63,13 @@ tags: ["caching", "redis"]
 
 3. Any tag you use must exist in `lib/tags.ts`. Unknown tags fall back to their raw id
    rather than throwing, but they won't appear in the filter bar until registered.
+4. Designs also keep their opening and closing panels in frontmatter: `hardPartDetail`,
+   `concepts`, `requirements`, `scale`, `tradeoffs` and `followUps`. `lib/content.ts`
+   logs a warning for any that are missing. An existing design such as
+   `content/designs/02-chat-slack.md` is the easiest template to copy.
 
 That's it — the sidebar, index cards, filters, prev/next links and static routes all
 derive from the file. Nothing else needs editing.
-
-Alternatively, add the file's metadata to `scripts/add-frontmatter.py` and re-run it.
-The script is idempotent: existing frontmatter is replaced, not duplicated.
 
 ## Diagrams
 
@@ -80,15 +77,14 @@ Fenced blocks tagged `mermaid` render as diagrams; everything else renders as a
 copyable code block. Mermaid is dynamically imported so its ~500 KB stays out of the
 initial bundle, and it re-renders when the theme changes.
 
-Each design's architecture diagram lives in `scripts/diagrams/`. To change one, edit it
-there and re-run:
+Each design's architecture diagram is written directly in its markdown, under
+`## High-level architecture`. A collapsed `<details>` block beneath it holds a
+plain-text version of the same diagram, so update the two together. Hover tooltips
+come from Mermaid `click` lines that link a node to a concept module:
 
-```bash
-python3 scripts/convert-diagrams.py
+```text
+click Node href "/docs/05-async-messaging-and-event-driven" "Role: …<br/>Trade-off: …"
 ```
-
-The script replaces the existing chart in place and keeps the original ASCII version
-beneath it in a collapsed `<details>` block, so the plain-text form is still available.
 
 If a chart fails to parse, the `Mermaid` component catches it and falls back to showing
 the source rather than blanking the page.
