@@ -155,11 +155,11 @@ flowchart TB
     Player["Player · adaptive bitrate<br/>measures throughput + buffer<br/>steps DOWN aggressively,<br/>UP conservatively"]
     Player -. "view events · async" .-> Views{{"Kafka → Flink<br/>view counts, watch time, QoE"}}
 
-    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Raw,Processed store
+    class Raw,Processed blob
     class Split hot
     class Bus,Views queue
     class Edge1,Edge2,Edge3 external

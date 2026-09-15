@@ -151,10 +151,14 @@ flowchart TB
     LocGW -- "ONLY drivers on active trips<br/>throttled to 1 update / 2s" --> TripChan{{"pub/sub · trip:{id}"}}
     TripChan --> RiderWS([Rider live map])
 
-    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Geo,Hist,TripStore store
+    class TripStore db
+    class Geo cache
+    class Hist blob
     class Lock hot
     class Stream,TripChan queue
 

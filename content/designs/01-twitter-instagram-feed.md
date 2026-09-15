@@ -147,12 +147,18 @@ flowchart TB
     TimelineCache -- "feed page" --> Resp([Response to client])
     Media[("Blob storage + CDN<br/>images and video")] -. "media URLs" .-> Resp
 
-    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class PostStore,Feed,CelebCache,TimelineCache,Media store
+    class PostStore,Feed db
+    class CelebCache,TimelineCache cache
+    class Media blob
     class Decide hot
     class Bus queue
+    class GW gateway
 
     click Bus href "/docs/05-async-messaging-and-event-driven" "Role: decouples posting from fan-out so the write returns immediately.<br/>Trade-off: followers see the post seconds later, and consumers must be idempotent."
     click Skip href "/docs/06-fanout-and-feeds" "Role: celebrity posts are not copied into millions of timelines.<br/>Trade-off: every read must merge those posts in, which moves work to read time."

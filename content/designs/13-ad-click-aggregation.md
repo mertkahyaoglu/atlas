@@ -169,10 +169,12 @@ flowchart TB
 
     Water -. "checkpoints → exactly-once state;<br/>external writes still need<br/>idempotent upserts" .-> OLAP
 
-    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Archive,OLAP store
+    class OLAP db
+    class Archive blob
     class Window,Water hot
     class Bus queue
 

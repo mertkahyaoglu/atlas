@@ -156,10 +156,12 @@ flowchart TB
     Gather --> Hydrate["Hydrate titles, snippets, facets<br/>cache the result"]
     Hydrate --> Results([Results to user])
 
-    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Truth,S0,S1,S2,Trie,QCache store
+    class Truth,S0,S1,S2,Trie db
+    class QCache cache
     class Gather hot
     class CDC queue
 

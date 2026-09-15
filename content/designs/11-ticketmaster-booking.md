@@ -165,14 +165,18 @@ flowchart TB
     DB --> SeatEvents{{"Kafka · seat.events<br/>→ cache invalidate<br/>→ live seat map over WS"}}
     SeatEvents -.-> Browse
 
-    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef cache fill:#623e43,stroke:#f07a73,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef external fill:#2f5a4d,stroke:#5cc98f,color:#d7dee8
+    classDef gateway fill:#22565e,stroke:#38bdc1,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class Browse,DB store
+    class DB db
+    class Browse cache
     class Queue,Hold hot
     class SeatEvents queue
     class CDNEdge external
+    class GW gateway
 
     click Queue href "/docs/04-caching" "Role: a waiting room that admits users at the rate booking can handle.<br/>Trade-off: users wait, but the booking path survives the on-sale spike."
     click Browse href "/docs/04-caching" "Role: a fast, deliberately stale seat map for browsing.<br/>Trade-off: a seat shown as free may already be held, and the hold step decides."

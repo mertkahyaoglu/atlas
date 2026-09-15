@@ -219,10 +219,12 @@ flowchart TB
     Retention["Retention + erasure<br/>honours legal_hold"] --> PG
     Retention --> Obj[("Object storage<br/>presigned PUT<br/>quarantine → scan")]
 
-    classDef store fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
-    class PG,Obj store
+    class PG db
+    class Obj blob
     class Gate,Staff hot
     class Redis queue
 
