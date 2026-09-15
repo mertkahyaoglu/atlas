@@ -222,12 +222,100 @@ If you draw one box labeled "Load Balancer" and move on, a good interviewer will
 
 ## 1.7 The proxy family (and how they differ)
 
-These four terms get used loosely. Know the distinction:
+These four terms get used loosely. The distinction is simply *which side it stands in front of*, and how much it does once it's there.
 
-- **Forward proxy**: sits in front of *clients*, makes requests on their behalf. Used for corporate egress filtering, anonymity.
-- **Reverse proxy**: sits in front of *servers*, receives requests on their behalf. Handles TLS termination, compression, static file serving, and request routing. Nginx is the canonical example. A load balancer is a kind of reverse proxy.
-- **API gateway**: a reverse proxy with product features bolted on — authentication, rate limiting, request validation, usage metering, request aggregation across microservices. Covered in Module 7.
-- **CDN**: a globally distributed network of reverse proxies that cache content close to users. Covered in Module 4.
+### Forward proxy
+
+Sits in front of *clients*, makes requests on their behalf. Used for corporate egress filtering, anonymity. The destination server sees the proxy, not the client.
+
+```mermaid
+flowchart LR
+    A["Client A"] --> P["Forward proxy<br/>filters outbound traffic"]
+    B["Client B"] --> P
+    P --> I(["Any site on the internet"])
+```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
+  Client A ─┐
+            ├──► Forward proxy ──► any site on the internet
+  Client B ─┘    (filters outbound traffic)
+```
+
+</details>
+
+### Reverse proxy
+
+Sits in front of *servers*, receives requests on their behalf. Handles TLS termination, compression, static file serving, and request routing. Nginx is the canonical example. A load balancer is a kind of reverse proxy. The client sees the proxy, not the servers.
+
+```mermaid
+flowchart LR
+    C(["Clients"]) --> RP["Reverse proxy<br/>TLS · compression · routing"]
+    RP --> S1["App server 1"]
+    RP --> S2["App server 2"]
+```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
+                                      ┌──► App server 1
+  Clients ──► Reverse proxy ──────────┤
+              (TLS, compression,      └──► App server 2
+               routing)
+```
+
+</details>
+
+### API gateway
+
+A reverse proxy with product features bolted on — authentication, rate limiting, request validation, usage metering, request aggregation across microservices. Covered in Module 7.
+
+```mermaid
+flowchart LR
+    C(["Clients"]) --> GW["API gateway<br/>auth · rate limit · metering"]
+    GW --> S1["Orders service"]
+    GW --> S2["Users service"]
+```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
+                                    ┌──► Orders service
+  Clients ──► API gateway ──────────┤
+              (auth, rate limit,    └──► Users service
+               metering)
+```
+
+</details>
+
+### CDN
+
+A globally distributed network of reverse proxies that cache content close to users. Only a miss travels back to the origin. Covered in Module 4.
+
+```mermaid
+flowchart LR
+    U1(["User · Berlin"]) --> E1["Edge PoP<br/>Frankfurt"]
+    U2(["User · Tokyo"]) --> E2["Edge PoP<br/>Tokyo"]
+    E1 -- "miss" --> O[("Origin")]
+    E2 -- "miss" --> O
+```
+
+<details>
+<summary>Plain-text version of this diagram</summary>
+
+```text
+  User (Berlin) ──► Edge PoP (Frankfurt) ──miss──┐
+                                                 ├──► Origin
+  User (Tokyo)  ──► Edge PoP (Tokyo)     ──miss──┘
+
+  Hits never leave the edge.
+```
+
+</details>
 
 ---
 
