@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { CircleCheck } from "lucide-react";
 import type { DocMeta } from "@/lib/types";
+import { useIsCompleted } from "@/store/useProgressStore";
 import { accentVar, cn } from "@/lib/utils";
 
 interface SidebarLinkProps {
@@ -11,6 +13,8 @@ interface SidebarLinkProps {
 }
 
 export function SidebarLink({ doc, active, onNavigate }: SidebarLinkProps) {
+  const completed = useIsCompleted(doc.slug);
+
   return (
     <Link
       href={`/docs/${doc.slug}`}
@@ -33,6 +37,15 @@ export function SidebarLink({ doc, active, onNavigate }: SidebarLinkProps) {
         {String(doc.order).padStart(2, "0")}
       </span>
       <span className="leading-snug">{doc.title}</span>
+      {completed && (
+        <>
+          <CircleCheck
+            className="ml-auto h-3.5 w-3.5 shrink-0 self-center text-[color:var(--accent)]"
+            aria-hidden
+          />
+          <span className="sr-only">(completed)</span>
+        </>
+      )}
     </Link>
   );
 }
