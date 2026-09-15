@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { buildToc, designToc, getAllDocs, getAllMeta, getDoc, getSiblings, toMeta } from "@/lib/content";
+import { buildToc, designToc, getAllDocs, getAllMeta, getDoc, getScript, getSiblings, toMeta } from "@/lib/content";
 import { DocTitlesProvider } from "@/components/docs/diagram/DocTitles";
 import { splitTabs } from "@/lib/tabs";
 import { accentVar, cn } from "@/lib/utils";
@@ -43,7 +43,7 @@ export default function DocPage({ params }: PageProps) {
 
       <div className="mx-auto flex max-w-shell gap-12 px-4 pb-24 pt-10 sm:px-8">
         <main id="doc-main" className="min-w-0 flex-1">
-          <DocHeader doc={toMeta(doc)} showHardPart={!doc.design} />
+          <DocHeader doc={toMeta(doc)} showHardPart={!doc.design} script={getScript(doc.slug)} />
           <DocTitlesProvider titles={titles}>
             <article className={cn("doc", doc.group === "design" && "doc-design")}>
               {doc.design && <DesignOverview design={doc.design} />}

@@ -151,6 +151,39 @@ Keep headings out of tabs, since the table of contents would link into a hidden 
 In the scaled diagram, layer `classDef scaled stroke-dasharray:5 3` on nodes that are
 new or reshaped compared with today's design, the same way `hot` layers on a type.
 
+## Interview scripts
+
+A design can carry a worked script: the same design spoken aloud as a 45-minute
+round, following the six phases of `content/concepts/10-interview-playbook.md`. Drop
+`content/scripts/<slug>.md` next to the design's slug and a **Script** button appears in
+its header; without the file nothing changes.
+
+The file is plain markdown. A `##` heading starts a phase, and each speaking turn starts
+with a speaker marker:
+
+```markdown
+## Clarify · 5 min · Requirements, and the scope cuts said out loud
+
+@interviewer · the prompt
+Design the chat that lets a researcher talk to the participants in their study.
+
+@you
+Let me play that back and then agree the shape with you…
+
+@note · Playbook 10.4
+Why that move scores. Notes are asides, not a third voice in the room.
+```
+
+A phase heading's fields are ` · ` separated: the title first, then a `N min` budget and a
+one-line goal in either order. A marker takes an optional ` · cue` — a stage direction
+such as `drawing`, or the playbook section a note draws on. `lib/script.ts` parses it,
+`getScript()` loads it, and `components/docs/script/` renders it in a dialog. Turn bodies
+are markdown, so tables and lists work.
+
+Only `@you`, `@interviewer` and `@note` are speakers; text before the first marker (a
+title, an intro) is ignored, so the file still reads top to bottom in a plain markdown
+viewer.
+
 ## Design notes
 
 Two accent colours carry information rather than decoration: teal marks concept

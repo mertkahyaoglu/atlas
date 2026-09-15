@@ -58,6 +58,33 @@ export interface DesignDetails {
   followUps: DesignFollowUp[];
 }
 
+/** Who is speaking in an interview script. `note` is a coaching aside, not a voice. */
+export type ScriptSpeaker = "you" | "interviewer" | "note";
+
+export interface ScriptTurn {
+  speaker: ScriptSpeaker;
+  /** Optional stage direction: "drawing", "pushing on scope". */
+  cue?: string;
+  /** Markdown: may contain lists, tables and inline code. */
+  body: string;
+}
+
+/** One phase of the Module 10.1 framework. */
+export interface ScriptPhase {
+  title: string;
+  minutes?: number;
+  goal?: string;
+  turns: ScriptTurn[];
+}
+
+export interface InterviewScript {
+  phases: ScriptPhase[];
+  /** Budgeted total, summed from the phases. */
+  minutes: number;
+  /** Spoken turns, notes excluded. */
+  turns: number;
+}
+
 export interface Doc extends DocMeta {
   content: string;
   /** Design docs only. Kept off DocMeta so sidebar and card payloads stay small. */
