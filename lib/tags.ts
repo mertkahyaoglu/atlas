@@ -232,6 +232,77 @@ const TAG_LIST: Tag[] = [
       "Streaming between backend services",
     ],
   },
+  {
+    id: "dynamodb",
+    label: "DynamoDB",
+    kind: "tech",
+    description: "Managed key-value and document store with predictable latency at any size.",
+    features: [
+      "Single-digit ms reads by key",
+      "No servers or rebalancing to run",
+      "Conditional writes and transactions",
+      "Streams for change capture",
+      "Global tables for multi-region",
+    ],
+    useWhen: [
+      "Key-based access at scale with no ops",
+      "Sessions, carts, profiles, metadata",
+      "Counters and idempotency via conditional writes",
+    ],
+  },
+  {
+    id: "memcached",
+    label: "Memcached",
+    kind: "tech",
+    description: "Multithreaded in-memory cache that does nothing but get and set.",
+    features: [
+      "Multithreaded, very high throughput",
+      "Tiny memory overhead per entry",
+      "Pure LRU, no persistence",
+      "Sharded by the client",
+    ],
+    useWhen: [
+      "A pure look-aside cache of opaque blobs",
+      "Cheapest bytes at very large fleet size",
+      "No need for data types or durability",
+    ],
+  },
+  {
+    id: "api-gateway",
+    label: "API gateway",
+    kind: "tech",
+    description: "The edge tier every external request passes through before it reaches a service.",
+    features: [
+      "TLS termination and routing",
+      "Auth once, at the edge",
+      "Per-client rate limits and quotas",
+      "Timeouts, retries, circuit breaking",
+      "One place for logs and metrics",
+    ],
+    useWhen: [
+      "Any design with external clients",
+      "Per-key rate limiting and quotas",
+      "Hiding the service topology behind one host",
+    ],
+  },
+  {
+    id: "zookeeper",
+    label: "ZooKeeper",
+    kind: "tech",
+    description: "Strongly consistent coordination store for leader election and membership.",
+    features: [
+      "Linearizable writes via quorum",
+      "Ephemeral nodes tied to a session",
+      "Watches push change notifications",
+      "Small data only, not a database",
+      "etcd and Consul are the alternatives",
+    ],
+    useWhen: [
+      "Electing exactly one leader per shard",
+      "Cluster membership and failure detection",
+      "Assigning partitions to workers",
+    ],
+  },
 ];
 
 const TAG_MAP = new Map(TAG_LIST.map((t) => [t.id, t]));

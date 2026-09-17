@@ -3,7 +3,7 @@ import type { DocMeta, SortKey } from "./types";
 /** Case-insensitive substring match across the fields a reader would recall. */
 function matchesQuery(doc: DocMeta, query: string): boolean {
   if (!query) return true;
-  const haystack = [doc.title, doc.summary, doc.hardPart ?? "", doc.tags.join(" ")]
+  const haystack = [doc.title, doc.summary, doc.hardPart ?? "", doc.role ?? "", doc.tags.join(" ")]
     .join(" ")
     .toLowerCase();
   return query

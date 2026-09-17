@@ -1,7 +1,8 @@
 # System Design Atlas
 
-A reading app for twenty-six system design documents: ten concept modules built from
-the ground up, and sixteen worked designs with rendered architecture diagrams.
+A reading app for forty-one system design documents: ten concept modules built from
+the ground up, fifteen pages on the technologies those designs name, and sixteen
+worked designs with rendered architecture diagrams.
 
 ## Running it
 
@@ -43,12 +44,13 @@ store/
   useFilterStore.ts       query, tags, sort
 content/
   concepts/*.md           ten modules
+  tech/*.md               fifteen technology pages
   designs/*.md            sixteen designs
 ```
 
 ## Adding a document
 
-1. Drop a `.md` file into `content/concepts/` or `content/designs/`.
+1. Drop a `.md` file into `content/concepts/`, `content/tech/` or `content/designs/`.
 2. Give it frontmatter:
 
 ```yaml
@@ -64,7 +66,12 @@ tags: ["caching", "redis"]
 
 3. Any tag you use must exist in `lib/tags.ts`. Unknown tags fall back to their raw id
    rather than throwing, but they won't appear in the filter bar until registered.
-4. Designs also keep their opening and closing panels in frontmatter: `hardPartDetail`,
+4. Technology pages add a `role`: two or three words naming what the thing *is*
+   ("Event log", "Wide-column store"), shown on the card. They follow a fixed
+   shape — **Basics**, **Key concepts and capabilities**, **When to use it in an
+   interview**, **What interviewers push on** — so they can be read in any order
+   and compared against each other.
+5. Designs also keep their opening and closing panels in frontmatter: `hardPartDetail`,
    `concepts`, `requirements`, `scale`, `tradeoffs` and `followUps`. `lib/content.ts`
    logs a warning for any that are missing. An existing design such as
    `content/designs/02-chat-slack.md` is the easiest template to copy.
@@ -186,8 +193,8 @@ viewer.
 
 ## Design notes
 
-Two accent colours carry information rather than decoration: teal marks concept
-modules, amber marks designs. The accent is set once per page as a CSS variable
+Three accent colours carry information rather than decoration: teal marks concept
+modules, violet marks technologies, amber marks designs. The accent is set once per page as a CSS variable
 (`--accent`) and every component reads it, so no component branches on theme or group.
 
 Numbered markers appear on cards and in the sidebar because the content genuinely is
@@ -205,6 +212,8 @@ Dark is the default because this is long-form night reading. The theme is stored
   generated at build time from `getAllDocs()`.
 - **Progress tracking.** Add a `useProgressStore` alongside the existing stores and
   render a marker in `SidebarLink` and on the cards.
-- **A second content group.** Add it to `DocGroup` in `lib/types.ts`, give it a
-  directory in `GROUP_DIR`, an accent variable in `globals.css`, and a `Section` in the
-  sidebar. Everything else is generic over the group.
+- **Another content group.** `tech` is the worked example: add it to `DocGroup` in
+  `lib/types.ts`, give it a directory in `GROUP_DIR` and a slot in `GROUP_ORDER`, an
+  accent variable in `globals.css` and `tailwind.config.ts`, a label in `GroupBadge`,
+  and a `Section` in the sidebar and on the home page. Everything else — routes,
+  search, filters, prev/next, progress — is generic over the group.

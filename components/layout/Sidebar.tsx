@@ -11,6 +11,7 @@ import { SidebarLink } from "./SidebarLink";
 
 interface SidebarProps {
   concepts: DocMeta[];
+  tech: DocMeta[];
   designs: DocMeta[];
 }
 
@@ -47,7 +48,7 @@ function Section({ heading, note, accent, docs, activeSlug, onNavigate }: Sectio
   );
 }
 
-export function Sidebar({ concepts, designs }: SidebarProps) {
+export function Sidebar({ concepts, tech, designs }: SidebarProps) {
   const pathname = usePathname();
   const open = useUiStore((s) => s.sidebarOpen);
   const setOpen = useUiStore((s) => s.setSidebarOpen);
@@ -126,6 +127,14 @@ export function Sidebar({ concepts, designs }: SidebarProps) {
             note="Read in order. Each builds on the last."
             accent="var(--concept)"
             docs={concepts}
+            activeSlug={activeSlug}
+            onNavigate={close}
+          />
+          <Section
+            heading="Key Technologies"
+            note="One page per system. What it is, and when to reach for it."
+            accent="var(--tech)"
+            docs={tech}
             activeSlug={activeSlug}
             onNavigate={close}
           />

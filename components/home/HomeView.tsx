@@ -7,10 +7,12 @@ import { useFilterStore } from "@/store/useFilterStore";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConceptCard } from "./ConceptCard";
 import { DesignCard } from "./DesignCard";
+import { TechCard } from "./TechCard";
 import { FilterBar } from "./FilterBar";
 
 interface HomeViewProps {
   concepts: DocMeta[];
+  tech: DocMeta[];
   designs: DocMeta[];
 }
 
@@ -40,9 +42,9 @@ function Section({ title, note, count, total, accent, children }: SectionProps) 
   );
 }
 
-export function HomeView({ concepts, designs }: HomeViewProps) {
+export function HomeView({ concepts, tech, designs }: HomeViewProps) {
   const { query, tags, sort, clear } = useFilterStore();
-  const all = useMemo(() => [...concepts, ...designs], [concepts, designs]);
+  const all = useMemo(() => [...concepts, ...tech, ...designs], [concepts, tech, designs]);
 
   const filtered = useMemo(
     () => filterDocs(all, { query, tags, sort }),
@@ -50,6 +52,7 @@ export function HomeView({ concepts, designs }: HomeViewProps) {
   );
 
   const visibleConcepts = filtered.filter((d) => d.group === "concept");
+  const visibleTech = filtered.filter((d) => d.group === "tech");
   const visibleDesigns = filtered.filter((d) => d.group === "design");
 
   return (
@@ -83,6 +86,20 @@ export function HomeView({ concepts, designs }: HomeViewProps) {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {visibleConcepts.map((doc) => (
             <ConceptCard key={doc.slug} doc={doc} />
+          ))}
+        </div>
+      </Section>
+
+      <Section
+        title="Key Technologies"
+        note="The systems you will actually name in a round. What each one is, what it is good at, and the moment it becomes the right answer."
+        count={visibleTech.length}
+        total={tech.length}
+        accent="var(--tech)"
+      >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {visibleTech.map((doc) => (
+            <TechCard key={doc.slug} doc={doc} />
           ))}
         </div>
       </Section>

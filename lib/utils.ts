@@ -1,4 +1,5 @@
 import { clsx, type ClassValue } from "clsx";
+import type { DocGroup } from "./types";
 import { extendTailwindMerge } from "tailwind-merge";
 
 /**
@@ -20,6 +21,6 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** Accent CSS variable for a group. Components read `--accent`, never a theme. */
-export function accentVar(group: "concept" | "design") {
+export function accentVar(group: DocGroup) {
   return { "--accent": `var(--${group})` } as React.CSSProperties;
 }

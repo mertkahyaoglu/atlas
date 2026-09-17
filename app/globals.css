@@ -7,7 +7,8 @@
 /* ---------------------------------------------------------------------------
    Theme tokens. Dark is the default because this is long-form night reading;
    light exists for daylight. Accents encode section membership:
-   teal = concept module, amber = design. They are never decorative.
+   teal = concept module, violet = technology, amber = design. They are never
+   decorative.
 --------------------------------------------------------------------------- */
 
 :root {
@@ -24,8 +25,10 @@
   --ink-faint: #8593a6;
   --concept: #147d70;
   --design: #9a6410;
+  --tech: #5b46b8;
   --concept-soft: rgba(20, 125, 112, 0.1);
   --design-soft: rgba(154, 100, 16, 0.1);
+  --tech-soft: rgba(91, 70, 184, 0.1);
 
   /* Status tones for HTTP method and status badges. */
   --tone-green: #1a7f4e;
@@ -69,8 +72,10 @@
   --ink-faint: #64728a;
   --concept: #4fb8a8;
   --design: #e8a33d;
+  --tech: #ad94f7;
   --concept-soft: rgba(79, 184, 168, 0.12);
   --design-soft: rgba(232, 163, 61, 0.12);
+  --tech-soft: rgba(173, 148, 247, 0.12);
 
   --tone-green: #5cc98f;
   --tone-green-soft: rgba(92, 201, 143, 0.1);
@@ -230,10 +235,11 @@
 
   /* Design prose sits between full-width diagrams and panels, so it fills the
      column too. Concept modules keep the reading measure. */
-  .doc-design p,
-  .doc-design ul,
-  .doc-design ol,
-  .doc-design blockquote {
+  /* Pages built from panels and diagrams: prose spans the column with them. */
+  .doc-wide p,
+  .doc-wide ul,
+  .doc-wide ol,
+  .doc-wide blockquote {
     @apply max-w-none;
   }
 

@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import type { DesignFollowUp } from "@/lib/types";
+import type { FollowUp } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { InlineMarkdown } from "./InlineMarkdown";
 
@@ -11,7 +11,7 @@ import { InlineMarkdown } from "./InlineMarkdown";
  * read the question, answer it in your head, then reveal. Answers stay in the
  * DOM (hidden, not unmounted) so find-in-page still reaches them.
  */
-export function FollowUps({ items }: { items: DesignFollowUp[] }) {
+export function FollowUps({ items }: { items: FollowUp[] }) {
   const baseId = useId();
   const [open, setOpen] = useState<Set<number>>(() => new Set());
   const allOpen = open.size === items.length;

@@ -24,8 +24,10 @@ const config: Config = {
         inkFaint: "var(--ink-faint)",
         concept: "var(--concept)",
         design: "var(--design)",
+        tech: "var(--tech)",
         conceptSoft: "var(--concept-soft)",
         designSoft: "var(--design-soft)",
+        techSoft: "var(--tech-soft)",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
