@@ -1,4 +1,4 @@
-export type DocGroup = "concept" | "design";
+export type DocGroup = "concept" | "design" | "tech";
 
 /** Facets used by the filter bar. Kept as a union so new facets fail loudly. */
 export type TagKind = "concept" | "tech" | "pattern";
@@ -25,6 +25,8 @@ export interface DocMeta {
   summary: string;
   /** Designs only: the thing the interviewer is actually testing. */
   hardPart?: string;
+  /** Technology pages only: the two-word role, e.g. "Event log". */
+  role?: string;
   tags: string[];
   readingMinutes: number;
 }

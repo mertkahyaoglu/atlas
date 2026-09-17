@@ -17,7 +17,11 @@ const CONTENT_ROOT = path.join(process.cwd(), "content");
 const GROUP_DIR: Record<DocGroup, string> = {
   concept: "concepts",
   design: "designs",
+  tech: "tech",
 };
+
+/** Reading order of the groups: the ideas, then the tools, then the problems. */
+const GROUP_ORDER: DocGroup[] = ["concept", "tech", "design"];
 
 const WORDS_PER_MINUTE = 200;
 
@@ -122,6 +126,7 @@ function readGroup(group: DocGroup): Doc[] {
         title: String(data.title ?? slug),
         summary: String(data.summary ?? ""),
         hardPart: data.hardPart ? String(data.hardPart) : undefined,
+        role: data.role ? String(data.role) : undefined,
         tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
         readingMinutes: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
         content,
@@ -139,8 +144,8 @@ let cache: Doc[] | null = null;
 
 export function getAllDocs(): Doc[] {
   // In dev, re-read so markdown edits show up without restarting the server.
-  if (process.env.NODE_ENV !== "production") return [...readGroup("concept"), ...readGroup("design")];
-  if (!cache) cache = [...readGroup("concept"), ...readGroup("design")];
+  if (process.env.NODE_ENV !== "production") return GROUP_ORDER.flatMap(readGroup);
+  if (!cache) cache = GROUP_ORDER.flatMap(readGroup);
   return cache;
 }
 

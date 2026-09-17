@@ -7,12 +7,13 @@ import { Sidebar } from "./Sidebar";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const concepts = getDocsByGroup("concept").map(toMeta);
+  const tech = getDocsByGroup("tech").map(toMeta);
   const designs = getDocsByGroup("design").map(toMeta);
 
   return (
     // clip, not hidden: hidden tooltips can't widen the page, and sticky still works.
     <div className="min-h-screen overflow-x-clip">
-      <Sidebar concepts={concepts} designs={designs} />
+      <Sidebar concepts={concepts} tech={tech} designs={designs} />
       <div data-content className="transition-[padding] duration-200 lg:pl-sidebar">
         {children}
       </div>
