@@ -103,11 +103,34 @@ GET <cdn>/videos/{id}/720p/seg_0042.ts || || 200 media segment
 POST /v1/videos/{id}/view || || 202 || async view event
 ```
 
-```schema
-videos || PK: video_id || owner, title, description, duration, status, created_at || status: UPLOADING | PROCESSING | READY | FAILED
-renditions || PK: video_id SK: (resolution, codec) || manifest_path, bitrate, size, ready ||
-jobs || PK: job_id || video_id, stage, state, attempts || transcode DAG state
-views_raw || || Kafka → stream aggregation → views_agg ||
+```erd
+# Catalog
+videos || metadata only: the bytes live in object storage
++ video_id || uuid || PK
++ owner_id || uuid
++ title || text
++ description || text
++ duration || interval
++ status || UPLOADING | PROCESSING | READY | FAILED
++ created_at || timestamp
+renditions
++ video_id || uuid || PK → videos
++ resolution || text || SK
++ codec || text || SK
++ manifest_path || text
++ bitrate || int
++ size || bigint
++ ready || boolean
+# Pipeline
+jobs || transcode DAG state
++ job_id || uuid || PK
++ video_id || uuid || → videos
++ stage || text
++ state || text
++ attempts || int
+views_raw || Kafka → stream aggregation → views_agg || Kafka topic
++ video_id || uuid
++ ts || timestamp
 ```
 
 Note what is *not* in the database: the video bytes. Metadata in the database, bytes in object storage, delivery via CDN. That split is the whole design.

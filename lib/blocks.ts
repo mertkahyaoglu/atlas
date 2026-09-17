@@ -1,5 +1,5 @@
 /**
- * The small line format behind ```api and ```schema fences:
+ * The small line format behind ```api and ```erd fences:
  *
  *   # Title · note      starts a group (the note is optional)
  *   a || b || c         a row; fields are separated by `||`

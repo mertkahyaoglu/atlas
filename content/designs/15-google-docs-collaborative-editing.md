@@ -117,11 +117,35 @@ GET /v1/docs/{id}/history?from= || || 200 op history
 POST /v1/docs/{id}/restore || {version} || 200
 ```
 
-```schema
-documents || PK: doc_id || title, owner, current_version, latest_snapshot_ref ||
-operations || PK: doc_id SK: version || op (insert|delete, position, content), author_id, client_seq, ts || append-only with a monotonic, server-assigned version; the doc is a fold over ops
-snapshots || PK: doc_id SK: version || content blob (object storage), created_at || taken every N ops so loading doesn't replay millions of entries
-presence || || Redis, ephemeral: doc_id → {user_id: {cursor, selection, ts}} || TTL
+```erd
+# Documents
+documents
++ doc_id || uuid || PK
++ title || text
++ owner || uuid
++ current_version || bigint || → operations.version
++ latest_snapshot_ref || bigint || → snapshots.version
+snapshots || taken every N ops so loading doesn't replay millions of entries
++ doc_id || uuid || PK → documents
++ version || bigint || SK
++ content || object ref
++ created_at || timestamp
+# Edits and presence
+operations || append-only with a monotonic, server-assigned version; the doc is a fold over ops
++ doc_id || uuid || PK → documents
++ version || bigint || SK
++ op || insert | delete
++ position || int
++ content || text || null
++ author_id || uuid
++ client_seq || int
++ ts || timestamp
+presence || ephemeral: doc_id → {user_id: {cursor, selection, ts}}, expires by TTL || Redis
++ doc_id || uuid || PK → documents
++ user_id || uuid
++ cursor || int
++ selection || range
++ ts || timestamp
 ```
 
 ---

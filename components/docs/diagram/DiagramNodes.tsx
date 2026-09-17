@@ -33,7 +33,11 @@ export type DiagramNodeData = {
   active: boolean;
 };
 export type DiagramNode = Node<DiagramNodeData, NodeKind>;
-export type ClusterNodeData = { title: string };
+export type ClusterNodeData = {
+  title: string;
+  /** Title indent from the left edge, when it should line up with what the group holds. */
+  inset?: number;
+};
 export type ClusterNode = Node<ClusterNodeData, "cluster">;
 
 /** Edges are drawn from layout points, but React Flow still needs a handle at each end. */
@@ -174,7 +178,7 @@ export function ClusterNodeView({ data }: NodeProps<ClusterNode>) {
   const [name, ...note] = data.title.split(" · ");
   return (
     <div className="flow-cluster">
-      <span className="flow-cluster__title">
+      <span className="flow-cluster__title" style={data.inset === undefined ? undefined : { left: data.inset }}>
         {name}
         {note.length > 0 && <span className="flow-cluster__note"> · {note.join(" · ")}</span>}
       </span>

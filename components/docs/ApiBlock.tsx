@@ -2,7 +2,20 @@ import { Fragment } from "react";
 import { parseSpec } from "@/lib/blocks";
 import { cn } from "@/lib/utils";
 import { HTTP_METHODS, MethodBadge, StatusBadge } from "./HttpBadge";
-import { BlockHeader } from "./SchemaBlock";
+
+/**
+ * Group heading inside an API block. Spans rather than h4/p so the
+ * long-form `.doc` heading and paragraph styles don't apply inside the block.
+ */
+function BlockHeader({ title, note }: { title?: string; note?: string }) {
+  if (!title) return null;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-rule bg-canvas px-4 py-2">
+      <span className="text-tiny font-semibold text-ink">{title}</span>
+      {note && <span className="text-tiny text-inkFaint">{note}</span>}
+    </div>
+  );
+}
 
 type Lead = { kind: "method"; method: string } | { kind: "status"; code: number } | { kind: "none" };
 

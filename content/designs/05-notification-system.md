@@ -105,12 +105,38 @@ PUT /v1/preferences || {type, channels[], digest_frequency} || 200
 POST /v1/repos/{id}/mute || || 204
 ```
 
-```schema
-subscriptions || PK: repo_id SK: user_id || type (watching|participating|mentioned), muted || fan-out lookup direction
-notifications || PK: user_id SK: notification_id (Snowflake, DESC) UNIQUE: (user_id, event_id) || event_id, type, entity_ref, read, created_at || the unique constraint is the idempotency key
-preferences || PK: user_id || per-type channel map, quiet_hours, timezone, digest_freq ||
-delivery_log || PK: (notification_id, channel) || status, attempts, last_error || dedupe and observability
-unread_counts || || Redis: unread:{user_id} → int || atomic INCR / DECR
+```erd
+# Routing
+subscriptions || fan-out lookup direction
++ repo_id || bigint || PK
++ user_id || bigint || SK
++ type || watching | participating | mentioned
++ muted || boolean
+preferences
++ user_id || bigint || PK
++ channels || map<type,channels>
++ quiet_hours || time range
++ timezone || text
++ digest_freq || text
+# Inbox
+notifications || notification_id is a Snowflake; the unique constraint is the idempotency key
++ user_id || bigint || PK
++ notification_id || bigint || SK DESC
++ event_id || uuid
++ type || text
++ entity_ref || text
++ read || boolean
++ created_at || timestamp
++ UNIQUE (user_id, event_id)
+unread:{user_id} || unread count per user; atomic INCR / DECR || Redis
++ count || int
+# Delivery
+delivery_log || dedupe and observability
++ notification_id || bigint || PK → notifications.notification_id
++ channel || text || PK
++ status || text
++ attempts || int
++ last_error || text || null
 ```
 
 ---

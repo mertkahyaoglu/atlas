@@ -100,15 +100,43 @@ GET /v1/payments/{id} || || 200 payment
 POST /v1/webhooks/psp || || 200 || inbound from the processor, signed
 ```
 
-```schema
-idempotency_keys || PK: (merchant_id, key) || request_hash, response_body, status, created_at || TTL 24h; the single most important table in the system
-payments || PK: payment_id || order_id, amount, currency, state, psp_ref, created_at ||
-+ states: PENDING → AUTHORIZED → CAPTURED → SETTLED
-+                ↘ FAILED    ↘ REFUNDED / PARTIALLY_REFUNDED
-ledger_entries || PK: entry_id || transaction_id, account_id, direction (DEBIT|CREDIT), amount_minor_units (INTEGER, never float), currency, created_at || immutable and append-only; Σ debits = Σ credits per transaction_id
-accounts || PK: account_id || type (customer|merchant|fees|psp_clearing) || balance is derived from the ledger, cached with periodic reconciliation
-outbox || PK: id || aggregate_id, event_type, payload, published (bool) ||
-psp_events || PK: psp_event_id || || dedupe of inbound webhooks
+```erd
+# Requests · exactly once
+idempotency_keys || TTL 24h; the single most important table in the system
++ merchant_id || bigint || PK
++ key || uuid || PK
++ request_hash || bytes
++ response_body || jsonb
++ status || text
++ created_at || timestamptz
+psp_events || dedupe of inbound webhooks
++ psp_event_id || text || PK
+outbox
++ id || bigint || PK
++ aggregate_id || uuid || → payments
++ event_type || text
++ payload || jsonb
++ published || boolean
+# Money · Postgres
+payments || state: PENDING → AUTHORIZED → CAPTURED → SETTLED, branching to FAILED and REFUNDED / PARTIALLY_REFUNDED
++ payment_id || uuid || PK
++ order_id || uuid
++ amount || bigint
++ currency || char(3)
++ state || text
++ psp_ref || text || null
++ created_at || timestamptz
+ledger_entries || immutable and append-only; Σ debits = Σ credits per transaction_id; amounts are integers, never float
++ entry_id || bigint || PK
++ transaction_id || uuid
++ account_id || bigint || → accounts
++ direction || DEBIT | CREDIT
++ amount_minor_units || bigint
++ currency || char(3)
++ created_at || timestamptz
+accounts || balance is derived from the ledger, cached with periodic reconciliation
++ account_id || bigint || PK
++ type || customer | merchant | fees | psp_clearing
 ```
 
 Two details worth stating unprompted: **amounts are integers in minor units** (cents), never floats — `0.1 + 0.2 != 0.3` is a real bug that costs real money. And **ledger entries are immutable**; a correction is a new compensating entry, never an UPDATE.

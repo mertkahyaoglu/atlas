@@ -106,14 +106,37 @@ frontier.pop(worker_id) || || url || politeness-aware
 content.put(url, html, fetched_at, checksum)
 ```
 
-```schema
-url_seen || || Bloom filter, in RAM and sharded || a backing store confirms positives
-robots_cache || || domain → parsed rules || TTL ~24h
-dns_cache || || hostname → IPs || TTL honors the DNS record
-page_store || PK: url_hash || html, headers, fetched_at, http_status, content_checksum || html is compressed, in object storage
-content_hash || || simhash / checksum → canonical_url || near-duplicate detection
-domain_state || || domain → last_fetch_ts, crawl_delay, error_rate, politeness_budget ||
-schedule || PK: url_hash || next_crawl_at, change_frequency_estimate ||
+```erd
+# Frontier
+url_seen || in RAM and sharded; a backing store confirms positives || Bloom filter
+schedule
++ url_hash || bytes || PK → page_store
++ next_crawl_at || timestamp
++ change_frequency_estimate || interval
+domain_state
++ domain || text || PK
++ last_fetch_ts || timestamp
++ crawl_delay || interval
++ error_rate || float
++ politeness_budget || int
+# Caches
+robots_cache || TTL ~24h || cache
++ domain || text || PK
++ rules || parsed rules
+dns_cache || TTL honors the DNS record || cache
++ hostname || text || PK
++ ips || list<inet>
+# Content
+page_store || html is compressed, in object storage
++ url_hash || bytes || PK
++ html || object ref
++ headers || map<text,text>
++ fetched_at || timestamp
++ http_status || int
++ content_checksum || bytes || → content_hash
+content_hash || simhash or checksum, for near-duplicate detection
++ checksum || bytes || PK
++ canonical_url || text
 ```
 
 ---
