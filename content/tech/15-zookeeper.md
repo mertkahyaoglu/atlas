@@ -18,70 +18,28 @@ facts:
     value: "Ephemeral znodes, sequential znodes, one-shot watches"
   - label: "Alternatives"
     value: "etcd (Raft, behind Kubernetes) and Consul — say \"ZooKeeper or etcd\""
-capabilities:
-  - title: "Leader election, the canonical recipe"
-    body: |-
-      Every candidate creates an ephemeral sequential node under `/election`. The lowest sequence number leads; each other candidate watches only the node directly below it, so a failure wakes exactly one client instead of a herd.
-
-      If the leader dies its ephemeral node disappears, and the next in line is promoted. Be able to sketch this.
-  - title: "Membership and discovery"
-    body: |-
-      Each worker registers an ephemeral node under `/workers` with its address, and a coordinator watches the directory — so joins and failures arrive as events rather than as a polled health check.
-  - title: "Partition assignment"
-    body: |-
-      The elected coordinator writes the shard-to-worker map into a znode; workers watch it and pick up their assignments.
-
-      This is how Kafka (before KRaft), HBase and Druid distribute work, and a good pattern to borrow when a design needs "exactly one process per shard".
-  - title: "Locks, with fencing"
-    body: |-
-      A lock is an ephemeral sequential node plus a watch on the predecessor. Critically, the sequence number is a **fencing token**: the holder passes it to any resource it writes, and the resource rejects anything with a lower token than the highest it has seen.
-
-      That is what makes the lock safe when a process pauses for a long GC and wakes believing it still holds it — the property a Redis lock does not give you.
-  - title: "Configuration that must be consistent"
-    body: |-
-      Feature flags, cluster topology, schema versions. Everyone watches the same znode and converges on the same value.
-useWhen:
-  - "The design contains the phrase **\"exactly one\"**: one scheduler, one writer per shard, one coordinator, one active node in an active-passive pair"
-  - "You need cluster membership with real failure detection rather than polled health checks"
-  - "A lock whose failure would cost money, so it needs a fencing token"
-avoidWhen:
-  - "As a key-value store or a queue — every write goes through one leader"
-  - "For anything high-volume: it is built for thousands of metadata writes per second, not your traffic"
-  - "\"Roughly one worker at a time\" is enough: a lease row in Postgres with an expiry is simpler, and saying so scores"
-probes:
-  - question: "Do you actually need it?"
-    answer: "The best answer often starts by ruling it out: a database lease, a partitioned Kafka consumer group, or idempotent work that tolerates being done twice all avoid another system."
-  - question: "How do you prevent split brain?"
-    answer: "A majority quorum: a partitioned minority cannot commit writes, so there is one leader. The harder half is that a merely *slow* leader still thinks it leads — which is what fencing tokens are for."
-  - question: "Why is a Redis lock not equivalent?"
-    answer: "No consensus, no fencing token, and asynchronous replication, so a failover can lose the lock's existence. Fine for deduplicating work, not for protecting money."
-  - question: "A GC pause expired the session."
-    answer: "The ephemeral node drops and a needless failover happens. Session timeouts are tuned against that, and the work has to be safe to restart."
-  - question: "How much can it hold?"
-    answer: "Small data, a few thousand writes per second, one leader. A design that puts per-request state in it is the mistake being probed."
-  - question: "Does Kafka still use it?"
-    answer: "No — Kafka moved its metadata to its own Raft quorum, KRaft. Knowing that is a cheap signal your knowledge is current."
+concepts:
+  - "**Not a database** — tiny metadata only: a few thousand writes a second, all through one leader"
+  - "**Majority quorum** — writes commit on a majority, so a partitioned minority cannot invent a second leader"
+  - "**Ephemeral znodes** vanish when a session stops heartbeating, which is failure detection with no extra machinery"
+  - "**Sequential znodes** get a monotonic suffix, giving a total order — and a fencing token"
+  - "**Watches** notify once when a znode changes, so joins and failures arrive as events instead of polls"
+  - "**Leader election** — lowest sequence number leads, each candidate watches only its predecessor"
+  - "**Fencing tokens** — the resource rejects a token lower than the highest it has seen, which is what a Redis lock lacks"
+  - "**Rule it out first** — a database lease, a Kafka consumer group, or idempotent work often removes the need"
+  - "**Kafka moved off it** to its own Raft quorum, KRaft; knowing that keeps your answer current"
 ---
 
 # ZooKeeper
 
-## How it works
+## Use cases
 
-ZooKeeper is not a database. It is a replicated, strongly consistent store for
-tiny amounts of metadata that a distributed system must agree on: which node is
-the leader, which nodes are alive, which worker owns which partition.
+### Electing exactly one leader
 
-An ensemble of typically three or five servers runs the **ZAB** protocol: all
-writes go through a leader and are committed once a majority have them, so writes
-are linearizable and survive the loss of a minority.
-
-Two primitives do most of the work. **Ephemeral znodes** exist only while the
-client's session is alive — the client heartbeats, and if it stops, the node
-vanishes, which is failure detection with no extra machinery. **Sequential znodes**
-get a monotonically increasing suffix, which gives a total order. **Watches** let a
-client be notified once when a znode changes, instead of polling.
-
-## Leader election, drawn
+The canonical recipe, and the one to be able to sketch. Every candidate creates
+an ephemeral sequential node; the lowest sequence number leads. Each other
+candidate watches only the node directly below it, so one failure wakes one
+client rather than a herd.
 
 ```mermaid
 flowchart TB
@@ -96,24 +54,69 @@ flowchart TB
         N3 -. "watches" .-> N2
     end
 
-    N1 --> Work["Leader writes<br/>shard → worker map"]
-    Work --> W["Workers watch it<br/>and take assignments"]
+    N1 -. "session dies → znode vanishes<br/>18 is woken and takes over" .-> N2
 
     classDef hot stroke:#e8a33d,stroke-width:2px
     class N1 hot
 ```
 
-Each candidate watches only its predecessor, so one failure wakes one client
-rather than the whole herd. The sequence number doubles as a **fencing token**:
-pass it to whatever the leader writes to, and a paused leader that wakes up late
-is rejected.
+### Knowing who is alive, and who owns which shard
 
-## Where it fits in a design
+Workers register ephemeral nodes; the elected coordinator watches that directory
+and writes a shard-to-worker map into a znode; workers watch the map. Joins and
+failures arrive as events, and "exactly one process per shard" holds without
+anybody polling.
 
-Name it lightly. In most designs one sentence is enough — *"a ZooKeeper or etcd
-ensemble holds the shard assignment and elects the coordinator"* — and the rest of
-your time is better spent on the data path.
+```mermaid
+flowchart TB
+    W1(["Worker 1"]) -- "ephemeral /workers/w1" --> ZK["ZooKeeper ensemble<br/>3 or 5 servers"]
+    W2(["Worker 2"]) -- "ephemeral /workers/w2" --> ZK
+    W3(["Worker 3 · dies"]) -. "znode vanishes" .-> ZK
+    ZK -- "watch fires" --> Coord["Coordinator<br/>the elected leader"]
+    Coord -- "write /assignments" --> ZK
+    ZK -- "watch fires" --> W1
+    ZK -- "watch fires" --> W2
 
-> It deserves more only when the design is *about* coordination: a distributed
-> scheduler, a custom sharded store, or anything where you are building a cluster
-> rather than using one.
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Coord hot
+```
+
+### A lock that survives a GC pause
+
+The reason to use a consensus system rather than a cache for a lock that protects
+money. The sequence number is a **fencing token**: the resource remembers the
+highest it has seen, so a paused holder that wakes up late is rejected instead of
+writing over the new holder's work.
+
+```mermaid
+flowchart TB
+    A(["Holder A · token 17"]) -- "write with token 17" --> R[("Resource<br/>remembers highest token")]
+    A -. "long GC pause<br/>session expires, lock released" .-> Pause["A is frozen"]
+    B(["Holder B · token 18"]) -- "write with token 18" --> R
+    Pause -. "wakes up, writes with token 17" .-> R
+    R -. "17 < 18 → rejected" .-> Pause
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class R db
+    class R hot
+```
+
+### Config every node must agree on
+
+Feature flags, cluster topology, schema versions: written once through the
+leader, watched by everyone, and converged on within a heartbeat. Small, rarely
+written, and read by every node — which is precisely the shape it is built for.
+
+```mermaid
+flowchart TB
+    Admin(["Operator"]) -- "set /config/topology" --> Leader["ZAB leader"]
+    Leader -- "commit on a majority" --> F1["Follower"]
+    Leader --> F2["Follower"]
+    F1 -- "watch fires" --> S1["Service A"]
+    F2 -- "watch fires" --> S2["Service B"]
+    S1 -. "reads may be stale;<br/>sync first when it matters" .-> F1
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Leader hot
+```

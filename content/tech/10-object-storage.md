@@ -18,66 +18,28 @@ facts:
     value: "Read-after-write for new objects and overwrites"
   - label: "Queries"
     value: "None. Listing a prefix is slow and paginated"
-capabilities:
-  - title: "Presigned URLs keep bytes out of your servers"
-    body: |-
-      The application signs a URL granting a time-limited upload or download, and the client talks to the store directly. A 2 GB video never touches your API.
-
-      This is the single most important thing to say about object storage in an interview, because the naive design proxies uploads through the service and falls over.
-  - title: "Multipart upload and range requests"
-    body: |-
-      Multipart splits a large object into parts uploaded in parallel and retried individually, then completed as one object — that is what makes resumable uploads and chunked file sync work.
-
-      Range requests read a byte range without fetching the whole object: video seeking, one chunk of a synced file, resuming a download.
-  - title: "Events on change"
-    body: |-
-      An upload can emit a notification to a queue or topic — the standard trigger for asynchronous post-processing: thumbnails, HLS renditions, malware scanning, text extraction.
-
-      The upload responds immediately; the work happens behind it.
-  - title: "Lifecycle, tiers and versioning"
-    body: |-
-      Rules move objects to infrequent-access or archive tiers after N days and delete them after M. That is how a design with petabytes of logs stays affordable, and a one-line answer to "what does this cost?"
-
-      Versioning keeps every generation of a key, which gives you undelete and file history almost for free.
-  - title: "A CDN goes in front"
-    body: |-
-      Object storage is an origin, not a delivery network. Anything user-facing is served through a CDN, with signed URLs when it is private.
-useWhen:
-  - "The design has files: avatars, attachments, video, documents, backups, ML datasets, raw event archives"
-  - "You want the pattern stated out loud: **blob in object storage, metadata in a database**"
-  - "You need a durable floor under a pipeline: raw events in Parquet, aggregates hot, batch recompute from the archive"
-avoidWhen:
-  - "You need queries or transactions — it is not a database"
-  - "You need microseconds — it is not a cache"
-  - "There are millions of tiny objects: per-request cost and per-object overhead dominate, so pack them"
-probes:
-  - question: "How does the upload actually work?"
-    answer: "Client asks the API for a presigned URL, the API records a pending row, the client uploads directly, and the bucket's event marks the row complete. Drawing those four steps is the answer."
-  - question: "The client uploads and never confirms."
-    answer: "The completion event handles the normal case; a lifecycle rule cleans up orphaned objects, and the pending row expires."
-  - question: "The thumbnail is not there yet."
-    answer: "Derived state lands seconds after the upload. Either the UI tolerates it, or the flow blocks on the processing event — pick one and say so."
-  - question: "How do you sync a large file efficiently?"
-    answer: "Chunk into fixed-size pieces, hash each one, upload only the chunks the server does not already have. Deduplication and resume both fall out of that."
-  - question: "What does this cost?"
-    answer: "Storage is cheap, egress is not — a CDN in front is as much a cost decision as a latency one. Cold tiers for anything older than a month."
-  - question: "How do you keep private media private?"
-    answer: "Buckets private by default, presigned URLs with short expiry, signed CDN URLs for paid content. A permanent public link is not a design."
+concepts:
+  - "**Presigned URLs** — the client uploads and downloads directly, so a 2 GB video never touches your API"
+  - "**Multipart upload** — parts in parallel, retried individually, completed as one object; this is what makes resume work"
+  - "**Range requests** — read a byte range without fetching the object: video seeking, one chunk of a file, resuming"
+  - "**Events on change** — an upload emits a notification, which is the standard trigger for scanning and transcoding"
+  - "**Lifecycle rules** move objects to colder tiers after N days and delete them after M — the whole cost answer"
+  - "**Versioning** keeps every generation of a key, which gives undelete and file history almost free"
+  - "**Blob here, metadata there** — the row holds id, owner, key, size and status; the bucket holds the bytes"
+  - "**A CDN goes in front** of anything user-facing: object storage is an origin, not a delivery network"
+  - "**Not a database, not a cache** — no queries, no transactions, and tens of milliseconds per request"
 ---
 
 # Object storage
 
-## How it works
+## Use cases
 
-Object storage is an HTTP key-value store for immutable blobs. You `PUT` bytes
-under a key in a bucket and `GET` them back. There are no directories — a key like
-`users/123/avatar.jpg` is a flat string that merely looks like a path — no partial
-updates, and no file handles.
+### Uploads that never touch your servers
 
-What you buy is durability and scale that nothing else offers at the price. What
-you give up is latency and any ability to query the contents.
-
-## The upload flow, in four steps
+The one thing to say about object storage in an interview. The API signs a URL
+and records a pending row, the client `PUT`s the bytes directly, and the bucket's
+own event marks the row ready — so a client that dies mid-upload leaves an orphan
+for a lifecycle rule rather than a broken record.
 
 ```mermaid
 flowchart TB
@@ -86,8 +48,7 @@ flowchart TB
     Client -- "2 · PUT bytes directly" --> Bucket[("Object storage<br/>quarantine prefix")]
     Bucket -- "3 · object-created event" --> Q{{"Queue"}}
     Q --> Worker["Worker<br/>scan · thumbnail · transcode"]
-    Worker -- "4 · mark row ready" --> DB[("Metadata<br/>id · owner · key · status")]
-    Bucket --> CDN["CDN<br/>signed URLs for private media"]
+    Worker -- "4 · mark row ready" --> DB[("Metadata")]
 
     classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
@@ -99,15 +60,15 @@ flowchart TB
     class API hot
 ```
 
-The bytes never pass through the application, and the row is only marked ready by
-the event, so a client that dies mid-upload leaves an orphan for a lifecycle rule
-rather than a broken record.
+### Metadata you can query, bytes you cannot
 
-## Blob here, metadata there
+The split that shows up in every file design. Everything the application filters,
+sorts or authorises on lives in a row; the bytes live under a key that the row
+points at.
 
 ```erd
 # Metadata · your database
-files || the row is small and queryable; the bytes are not here
+files || small, queryable, and the only thing the API reads on a list
 + file_id || uuid || PK
 + owner_id || uuid
 + object_key || text
@@ -122,6 +83,44 @@ bucket || immutable; versioning gives undelete, lifecycle moves it to cold tiers
 + version_id || text
 ```
 
-> The pattern is always the same, and worth stating explicitly: the blob goes in
-> object storage, the metadata goes in a database, and nothing large ever passes
-> through your application.
+### Syncing a large file by chunks
+
+Hash fixed-size chunks on the client, ask which ones the server is missing, and
+upload only those. Deduplication across users, resume after a dropped connection
+and cheap versioning all fall out of the same content-addressed store.
+
+```mermaid
+flowchart TB
+    C([Client]) -- "1 · hash chunks<br/>send the list" --> API["API"]
+    API -- "2 · missing: 3 of 40" --> C
+    C -- "3 · PUT only those chunks" --> Bucket[("Chunk store<br/>key = content hash")]
+    C -- "4 · commit the chunk list" --> DB[("Version row<br/>ordered hashes")]
+    DB -. "another user uploads the same file<br/>→ zero chunks to send" .-> Bucket
+
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Bucket blob
+    class DB db
+    class API hot
+```
+
+### Serving the bytes, and ageing them out
+
+Object storage is an origin. A CDN serves users, signed URLs keep private media
+private, and lifecycle rules move cold objects down the tiers — which is the
+one-line answer to what a petabyte of logs costs.
+
+```mermaid
+flowchart TB
+    User([Viewer]) --> CDN["CDN edge<br/>signed URL, short expiry"]
+    CDN -- "miss" --> Bucket[("Object storage<br/>standard tier")]
+    Bucket -- "after 30 days" --> IA[("Infrequent access")]
+    IA -- "after 180 days" --> Archive[("Archive tier<br/>minutes to restore")]
+    Archive -- "after 7 years" --> Gone["Deleted by rule"]
+
+    classDef blob fill:#5f5830,stroke:#e6c43c,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Bucket,IA,Archive blob
+    class CDN hot
+```

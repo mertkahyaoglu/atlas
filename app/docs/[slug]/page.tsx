@@ -9,7 +9,7 @@ import { DocHeader } from "@/components/docs/DocHeader";
 import { Markdown } from "@/components/docs/Markdown";
 import { ContentTabs } from "@/components/docs/ContentTabs";
 import { DesignDeepDives, DesignOverview } from "@/components/docs/DesignPanels";
-import { TechDeepDives, TechOverview } from "@/components/docs/TechPanels";
+import { TechOverview } from "@/components/docs/TechPanels";
 import { PrevNext } from "@/components/docs/PrevNext";
 import { Toc } from "@/components/docs/Toc";
 import { ReadingProgress } from "@/components/docs/ReadingProgress";
@@ -58,7 +58,6 @@ export default function DocPage({ params }: PageProps) {
                 ),
               )}
               {doc.design && <DesignDeepDives design={doc.design} />}
-              {doc.tech && <TechDeepDives tech={doc.tech} />}
             </article>
           </DocTitlesProvider>
           <PrevNext prev={prev} next={next} />

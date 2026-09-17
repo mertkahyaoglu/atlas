@@ -18,68 +18,48 @@ facts:
     value: "None, and no replication: a dead node is a cold node"
   - label: "Value size"
     value: "1 MB by default; anything bigger belongs in object storage"
-capabilities:
-  - title: "The whole API"
-    body: |-
-      `get`, `set`, `add`, `delete`, `incr`/`decr`, and `cas`.
-
-      `cas` (check-and-set) returns a version with each read and rejects a write whose version is stale — the one primitive for safe read-modify-write.
-  - title: "Nothing is replicated"
-    body: |-
-      Lose a node and you lose its keys. For a look-aside cache that is a latency event, not a correctness one, which is precisely why the missing features are acceptable.
-  - title: "Leases, for the stampede"
-    body: |-
-      The classic answer to a hot key expiring under load comes from Facebook's memcache paper: on a miss, hand exactly one client a lease token and let it refill while everyone else briefly serves the stale value.
-
-      Worth knowing as a named technique — it is the same idea you would implement in Redis with a short lock.
-  - title: "Memcached vs Redis, the question you will actually be asked"
-    body: |-
-      | | Memcached | Redis |
-      | --- | --- | --- |
-      | Data model | Opaque blobs | Strings, hashes, sets, sorted sets, streams |
-      | Threads | Multithreaded | Single-threaded per shard |
-      | Persistence | None | RDB / AOF, optional |
-      | Replication | None | Primary/replica + Sentinel |
-      | Sharding | Client-side hashing | Redis Cluster |
-      | Best at | Cheap, huge, simple caching | Everything that is not just a cache |
-useWhen:
-  - "The requirement really is *only* caching: rendered HTML fragments, serialized API responses, query results"
-  - "Per-byte cost and per-core throughput matter, in a fleet with thousands of cache nodes"
-  - "You want to invoke the large-scale caching papers interviewers know, which are about Memcached"
-avoidWhen:
-  - "Sooner or later you want a counter, a sorted set or a TTL-scoped set — that is Redis, and one system beats two"
-  - "You need any durability or replication"
-  - "Values exceed the 1 MB item cap"
-probes:
-  - question: "Why Redis and not Memcached?"
-    answer: "One sentence: *I need data structures and optional durability, not just a blob cache; if I only needed get and set at enormous scale, Memcached would be cheaper.* An unexamined \"Redis because everyone uses Redis\" is the weak version."
-  - question: "What happens when a cache node dies?"
-    answer: "With client-side consistent hashing, its share of keys misses and the database takes that load. Size the database for a partial cache loss, or add a second cache tier."
-  - question: "How do you stop a stampede?"
-    answer: "Leases, stale-while-revalidate, jittered TTLs — the same toolkit as Redis. The interviewer wants one of them named."
-  - question: "Where do large objects go?"
-    answer: "Object storage, with the cache holding the pointer. The default item cap is 1 MB."
-  - question: "Your item sizes drifted over time and hit rate fell. Why?"
-    answer: "Slab calorimetry: memory is stranded in the wrong size class and cannot be borrowed by another. An operational detail, but knowing it exists signals real familiarity."
+concepts:
+  - "**The whole API** — `get`, `set`, `add`, `delete`, `incr`/`decr` and `cas`, and nothing else"
+  - "**`cas`** returns a version with each read and rejects a stale write — the one primitive for safe read-modify-write"
+  - "**No replication** — losing a node loses its keys, which for a look-aside cache is latency, not correctness"
+  - "**Client-side consistent hashing** — adding a node moves only its share of keys instead of reshuffling everything"
+  - "**Slab allocator** — items go into fixed size classes, so memory can be stranded when item sizes drift"
+  - "**Leases** — on a miss, one client gets the token to refill while the rest briefly serve stale (the memcache paper)"
+  - "**Multithreaded** — one box uses all its cores, which is the per-byte and per-core cost argument"
+  - "**Versus Redis** — no data structures, no persistence, no replication, no cluster; that simplicity *is* the pitch"
 ---
 
 # Memcached
 
-## How it works
+## Use cases
 
-Memcached is a distributed in-memory cache with one data model: an opaque byte
-blob under a string key, with an optional expiry. No lists, no sorted sets, no
-persistence, no replication, no cluster membership. A server is a bag of memory
-that forgets things.
+### A look-aside cache for rendered fragments
 
-Two design choices matter. It is **multithreaded**, so a single node uses all its
-cores and pushes more raw operations per second per box than single-threaded
-Redis. And its memory is managed by a **slab allocator**: memory is carved into
-size classes, and an item goes into the class that fits. That avoids
-fragmentation, at the cost of wasting the gap between an item's size and its class,
-and of one class being unable to borrow memory from another.
+The shape Memcached exists for: an opaque blob under a key, read far more often
+than it is written, cheap enough per byte that a huge fleet of cache nodes is
+affordable. A rendered HTML fragment, a serialized API response, a query result.
 
-## There is no cluster — the client is the router
+```mermaid
+flowchart TB
+    App([App fleet]) -- "1 · get frag:home:v7" --> MC["memcached<br/>opaque blob + TTL"]
+    MC -- "hit · serve" --> App
+    MC -. "miss" .-> App
+    App -- "2 · render or query" --> DB[("Database")]
+    App -- "3 · set frag:home:v7, 60s" --> MC
+    App -. "no invalidation:<br/>change the key" .-> MC
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class DB db
+    class MC hot
+```
+
+### Surviving a dead node
+
+There is no cluster: the client holds the server list and picks a node by
+consistent hashing. A node dying costs you its share of the keys and nothing
+else — provided the database behind it can absorb that share of misses, which is
+the question you will be asked.
 
 ```mermaid
 flowchart TB
@@ -95,18 +75,23 @@ flowchart TB
     class N3 hot
 ```
 
-Adding a node moves only its share of keys instead of reshuffling everything,
-which is the whole reason consistent hashing is here. The cluster's only failure
-mode is a cold node — so the question is always whether the database behind it
-survives that.
+### Stopping a stampede with leases
 
-## Where it fits in a design
+A popular key expires and every request misses at once. The lease is the named
+technique: exactly one client is handed the token to recompute, and the rest
+serve the stale value for the moment it takes.
 
-Name Memcached when the size and the simplicity are both real: rendered fragments
-and serialized responses in a fleet where per-byte cost and per-core throughput
-decide the bill. In practice most designs are better served by Redis, because
-sooner or later you want a counter, a sorted set or a TTL-scoped set, and running
-one system beats running two.
+```mermaid
+flowchart TB
+    R1([Request 1]) -- "miss" --> MC["memcached"]
+    MC -- "lease token granted" --> R1
+    R1 -- "recompute, then set" --> DB[("Database<br/>one query, not a thousand")]
+    R2([Requests 2…n]) -- "miss" --> MC
+    MC -. "no token: serve the stale value<br/>or wait briefly" .-> R2
+    R1 --> MC
 
-> The valuable interview move is not choosing Memcached — it is being able to
-> answer *"why Redis and not Memcached?"* in one sentence.
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class DB db
+    class MC hot
+```

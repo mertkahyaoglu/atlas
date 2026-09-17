@@ -18,88 +18,97 @@ facts:
     value: "Deadlines propagate down the chain; cancellation is real"
   - label: "Browsers"
     value: "Not directly — gRPC-Web plus a proxy, or REST at the edge"
-capabilities:
-  - title: "The contract is the schema"
-    body: |-
-      Field numbers, not names, travel on the wire, which gives clear evolution rules: add fields freely with new numbers, never reuse or renumber, never change a type, reserve numbers you retire. An old server ignores fields it does not know.
-
-      That compatibility discipline is the real reason large polyglot systems adopt it.
-  - title: "Deadlines propagate"
-    body: |-
-      A client sets a deadline and it travels with the call, so a chain of five services all know the remaining budget and abandon work when it is gone.
-
-      Strictly better than each hop inventing its own timeout — and worth naming when an interviewer asks about cascading failures.
-  - title: "Load balancing is different"
-    body: |-
-      Because HTTP/2 keeps one long-lived connection, a connection-level load balancer pins a client to one backend and the traffic does not spread.
-
-      The answers are client-side load balancing with service discovery, or an L7 proxy or service mesh that balances per request. Knowing this is a strong signal of having actually run it.
-  - title: "Interceptors"
-    body: |-
-      The middleware layer: auth, tracing, retries and metrics in one place per service, rather than scattered through handlers.
-useWhen:
-  - "**Internal, east-west traffic** where call volume is high and latency matters"
-  - "A gateway calls a dozen services to render one screen, and serialisation shows up in the p99"
-  - "A polyglot estate needs one enforced contract with generated clients"
-  - "Streaming telemetry or location updates between backends"
-avoidWhen:
-  - "At the edge: REST wins on cacheability, browser support, debuggability and third-party integration"
-  - "Clients need to shape their own queries — that is GraphQL"
-  - "The call does not need an answer now: a message log beats a synchronous RPC, and this is the most common mistake"
-probes:
-  - question: "Why not REST internally?"
-    answer: "Smaller payloads, generated typed clients, streaming, propagated deadlines. Then acknowledge the cost: harder to curl, needs tooling, no browser support."
-  - question: "How does load balancing work with one long-lived connection?"
-    answer: "It doesn't, by default — the client pins to a backend. Client-side load balancing with service discovery, or an L7 proxy or mesh balancing per request. This is the question that separates reading about gRPC from running it."
-  - question: "How do you evolve a message?"
-    answer: "Add fields with new numbers, reserve retired ones, never renumber or change a type. Old clients keep working, which is the point."
-  - question: "The dependency is down and calls are piling up."
-    answer: "Deadlines, retries on idempotent methods only, backoff with jitter, and a circuit breaker. The deadline is the part people forget."
-  - question: "You already run a service mesh. What changes?"
-    answer: "mTLS, retries and tracing come from the sidecar, so you say that rather than reimplementing them in interceptors."
-  - question: "How do you debug a binary protocol?"
-    answer: "Server reflection, `grpcurl`, and good tracing. It is a real cost, and naming it reads better than pretending otherwise."
+concepts:
+  - "**The schema is the contract** — generated clients in every language, and field *numbers* on the wire"
+  - "**Evolution rules** — add fields with new numbers, reserve retired ones, never renumber or change a type"
+  - "**Protobuf is compact** — a half to a third of JSON, and much faster to parse, which shows up in a fan-out p99"
+  - "**HTTP/2 multiplexing** — many concurrent calls on one connection, with no HTTP-level head-of-line blocking"
+  - "**Deadlines propagate** — one budget travels the whole chain, so five hops all know how long is left"
+  - "**Cancellation is real** — a client that goes away stops downstream work instead of paying for it"
+  - "**Interceptors** — auth, tracing, retries and metrics in one place per service"
+  - "**One connection defeats L4 balancing** — you need client-side balancing or an L7 proxy or mesh"
+  - "**REST or GraphQL at the edge, gRPC between services, a log when it need not be synchronous**"
 ---
 
 # gRPC
 
-## How it works
+## Use cases
 
-gRPC is a remote procedure call framework. You define services and messages in a
-`.proto` file, generate client and server code in whatever languages you use, and
-call a remote method as if it were local. Messages travel as **Protocol Buffers** —
-a compact binary encoding, typically half to a third the size of the equivalent
-JSON and much faster to parse.
+### Service-to-service calls with one deadline
 
-It runs over **HTTP/2**, which brings multiplexing (many concurrent calls on one
-connection, no head-of-line blocking at the HTTP layer), binary framing, header
-compression and flow control. One TCP connection carries the traffic that REST
-would spread over a pool.
+Behind the edge, where payload size and parse cost show up in the p99 and every
+caller is your own code. The deadline set at the gateway travels with the call,
+so the fifth hop knows how much budget is left and abandons work nobody is
+waiting for.
 
 ```mermaid
 flowchart TB
     Browser([Browser / mobile]) -- "REST or GraphQL<br/>cacheable, debuggable" --> GW["API gateway"]
-    GW -- "gRPC · deadline 200ms" --> S1["Orders"]
+    GW -- "gRPC · deadline 200 ms" --> S1["Orders"]
     GW -- "gRPC" --> S2["Pricing"]
-    S1 -- "gRPC · remaining budget travels" --> S3["Inventory"]
+    S1 -- "gRPC · 140 ms left" --> S3["Inventory"]
+    S3 -. "budget gone → cancel,<br/>nobody is waiting" .-> S3
     S1 -. "does not need an answer now" .-> K{{"Kafka"}}
-    Proxy["L7 proxy / mesh<br/>balances per request, not per connection"] --- S1
 
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
     class K queue
-    class Proxy hot
+    class GW hot
 ```
 
-The dashed edge is the decision most often got wrong: a synchronous RPC where an
-event would do. The annotated proxy is the second: one long-lived HTTP/2
-connection needs request-level balancing, or all your traffic lands on one
-backend.
+### Changing a message without breaking a caller
 
-## Where it fits in a design
+Field numbers, not names, are on the wire, so an old server ignores a field it
+has never heard of and a new server reads an old message fine. That is the
+property that makes a polyglot estate with dozens of services survivable.
 
-> *REST or GraphQL for clients, gRPC between services, Kafka when it does not
-> need to be synchronous.*
+```mermaid
+flowchart TB
+    V1["order.proto v1<br/>1: id · 2: total"] --> Gen["Generated clients<br/>Go · Java · Python"]
+    V2["order.proto v2<br/>+ 3: currency<br/>reserved 2"] --> Gen
+    Gen --> Old["Old server<br/>ignores field 3"]
+    Gen --> New["New server<br/>reads v1 messages"]
+    Bad(["Renumber or retype a field"]) -. "silent corruption — never do this" .-> Old
 
-That one line answers the transport question for most designs, and leaves you
-time for the parts that are actually hard.
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class V2 hot
+```
+
+### Streaming telemetry between backends
+
+Bidirectional streaming over one connection is what makes continuous flows —
+driver locations, metrics, live model scores — cheap: no per-message request
+overhead, and flow control that pushes back when the consumer falls behind.
+
+```mermaid
+flowchart TB
+    Edge(["Location gateway"]) -- "client stream<br/>positions every 4s" --> Svc["Tracking service"]
+    Svc -- "server stream<br/>assignments, corrections" --> Edge
+    Svc -. "HTTP/2 flow control:<br/>slow consumer pushes back" .-> Edge
+    Svc --> K{{"Kafka · for anything durable"}}
+
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class K queue
+    class Svc hot
+```
+
+### Balancing load across one long connection
+
+The trap that separates reading about gRPC from running it: HTTP/2 keeps a single
+connection, so a connection-level balancer pins a client to one backend forever.
+Balance per request instead — in the client, or in an L7 proxy or mesh.
+
+```mermaid
+flowchart TB
+    C1([Client]) -- "one HTTP/2 connection" --> L4["L4 load balancer"]
+    L4 -. "pins every call to one backend" .-> B1["Backend 1<br/>saturated"]
+    L4 -. "idle" .-> B2["Backend 2"]
+    C2([Client]) -- "client-side balancing<br/>or an L7 proxy / mesh" --> Bal["Per-request balancing"]
+    Bal --> B3["Backend A"]
+    Bal --> B4["Backend B"]
+    Bal --> B5["Backend C"]
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class B1 hot
+```

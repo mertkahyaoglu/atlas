@@ -10,7 +10,6 @@ import type {
   DocMeta,
   FollowUp,
   InterviewScript,
-  TechCapability,
   TechDetails,
   TechFact,
   TocEntry,
@@ -90,8 +89,8 @@ function readDesign(slug: string, data: Record<string, unknown>): DesignDetails 
 }
 
 /**
- * Technology docs keep everything but the narrative in frontmatter: the facts
- * strip, the capability cards, when to reach for it and what gets probed.
+ * Technology docs open with two panels read from frontmatter: the facts strip
+ * and the concept bullets. The body is the use cases, each with its diagram.
  */
 function readTech(slug: string, data: Record<string, unknown>): TechDetails | undefined {
   const tech: TechDetails = {
@@ -99,29 +98,16 @@ function readTech(slug: string, data: Record<string, unknown>): TechDetails | un
     facts: records<TechFact>(data.facts, (item) =>
       item.label && item.value ? { label: String(item.label), value: String(item.value) } : null,
     ),
-    capabilities: records<TechCapability>(data.capabilities, (item) =>
-      item.title && item.body ? { title: String(item.title), body: String(item.body) } : null,
-    ),
-    useWhen: strings(data.useWhen),
-    avoidWhen: strings(data.avoidWhen),
-    probes: records<FollowUp>(data.probes, (item) =>
-      item.question && item.answer ? { question: String(item.question), answer: String(item.answer) } : null,
-    ),
+    concepts: strings(data.concepts),
   };
 
-  const missing = [
-    !tech.role && "role",
-    tech.facts.length === 0 && "facts",
-    tech.capabilities.length === 0 && "capabilities",
-    tech.useWhen.length === 0 && "useWhen",
-    tech.avoidWhen.length === 0 && "avoidWhen",
-    tech.probes.length === 0 && "probes",
-  ].filter(Boolean);
+  const missing = [!tech.role && "role", tech.facts.length === 0 && "facts", tech.concepts.length === 0 && "concepts"]
+    .filter(Boolean);
   if (missing.length > 0) {
     console.warn(`[content] ${slug}: tech frontmatter is missing ${missing.join(", ")}`);
   }
 
-  return tech.facts.length > 0 || tech.capabilities.length > 0 ? tech : undefined;
+  return tech.facts.length > 0 || tech.concepts.length > 0 ? tech : undefined;
 }
 
 /** Words shown in the design panels, so reading time still counts them. */
@@ -144,13 +130,7 @@ function designWordCount(design: DesignDetails | undefined): number {
 /** Words shown in the technology panels, counted for the same reason. */
 function techWordCount(tech: TechDetails | undefined): number {
   if (!tech) return 0;
-  const text = [
-    ...tech.facts.flatMap((fact) => [fact.label, fact.value]),
-    ...tech.capabilities.flatMap((capability) => [capability.title, capability.body]),
-    ...tech.useWhen,
-    ...tech.avoidWhen,
-    ...tech.probes.flatMap((probe) => [probe.question, probe.answer]),
-  ].join(" ");
+  const text = [...tech.facts.flatMap((fact) => [fact.label, fact.value]), ...tech.concepts].join(" ");
   return text.split(/\s+/).filter(Boolean).length;
 }
 
@@ -282,23 +262,17 @@ export function designToc(design: DesignDetails): { opening: TocEntry[]; closing
   };
 }
 
-/** Headings rendered by the technology panels. */
-export const TECH_OPENING_TITLES = ["At a glance"] as const;
-export const TECH_CLOSING_TITLES = [
-  "Key concepts and capabilities",
-  "When to use it in an interview",
-  "What interviewers push on",
-] as const;
+/** Headings rendered by the technology panels, ahead of the markdown body. */
+export const TECH_OPENING_TITLES = ["At a glance", "Key concepts and capabilities"] as const;
 
 export function techToc(tech: TechDetails): { opening: TocEntry[]; closing: TocEntry[] } {
-  const [capabilitiesTitle, useTitle, probesTitle] = TECH_CLOSING_TITLES;
+  const [glanceTitle, conceptsTitle] = TECH_OPENING_TITLES;
   return {
-    opening: tech.facts.length > 0 ? TECH_OPENING_TITLES.map(tocEntry) : [],
-    closing: [
-      ...(tech.capabilities.length > 0 ? [tocEntry(capabilitiesTitle)] : []),
-      ...(tech.useWhen.length > 0 || tech.avoidWhen.length > 0 ? [tocEntry(useTitle)] : []),
-      ...(tech.probes.length > 0 ? [tocEntry(probesTitle)] : []),
+    opening: [
+      ...(tech.facts.length > 0 ? [tocEntry(glanceTitle)] : []),
+      ...(tech.concepts.length > 0 ? [tocEntry(conceptsTitle)] : []),
     ],
+    closing: [],
   };
 }
 

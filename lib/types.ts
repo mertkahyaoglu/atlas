@@ -66,21 +66,13 @@ export interface TechFact {
   value: string;
 }
 
-export interface TechCapability {
-  title: string;
-  /** Markdown: may contain code blocks, tables and lists. */
-  body: string;
-}
-
 /** The structured sections of a technology doc, read from frontmatter. */
 export interface TechDetails {
   /** The two-word role, repeated from `DocMeta` so the panels are self-contained. */
   role: string;
   facts: TechFact[];
-  capabilities: TechCapability[];
-  useWhen: string[];
-  avoidWhen: string[];
-  probes: FollowUp[];
+  /** One line each; the use cases in the body carry the detail. */
+  concepts: string[];
 }
 
 /** Who is speaking in an interview script. `note` is a coaching aside, not a voice. */

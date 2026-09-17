@@ -18,118 +18,103 @@ facts:
     value: "Conditional writes, and transactions across up to 100 items"
   - label: "Change feed"
     value: "Streams, ordered per partition key, kept 24 hours"
-capabilities:
-  - title: "You can only query by key"
-    body: |-
-      `GetItem` by exact key, and `Query` on one partition key plus a sort-key condition. `Scan` reads the entire table and is the wrong answer in an interview unless you are doing an offline migration.
-
-      Everything else is an index you decided on in advance.
-  - title: "Indexes"
-    body: |-
-      A **global secondary index** is a separate copy of the table with a different key, updated asynchronously — eventually consistent, with its own cost.
-
-      A **local secondary index** keeps the partition key, changes the sort key, is strongly consistent, and must exist when the table is created.
-  - title: "Conditional writes are the concurrency primitive"
-    body: |-
-      `PutItem` with `attribute_not_exists(pk)` is an atomic insert-if-absent — an idempotency key, a username claim, a distributed lock.
-
-      `UpdateItem` with a `ConditionExpression` gives optimistic concurrency (`version = :expected`) and atomic counters (`ADD count :n`). `TransactWriteItems` is all-or-nothing across up to 100 items, at twice the cost.
-  - title: "Streams"
-    body: |-
-      Every change can be published to a **DynamoDB Stream**, ordered per partition key and retained 24 hours.
-
-      That is the hook for change data capture: fan out to a search index, maintain an aggregate, trigger a Lambda. It is how you avoid dual writes.
-  - title: "The managed extras"
-    body: |-
-      **TTL** deletes expired items in the background for free — sessions, carts, rate-limit buckets. **DAX** is a write-through cache in front when microseconds matter. **Global tables** replicate multi-region with last-writer-wins.
-useWhen:
-  - "Access is by a key you know at design time: profiles, sessions, carts, device state, short-link mappings, metadata beside an S3 blob"
-  - "Scale is large or spiky and you would rather not talk about operations at all"
-  - "The interviewer has framed the problem on AWS"
-  - "You want the properties of Cassandra without the operational story"
-avoidWhen:
-  - "Queries are ad hoc or analytical"
-  - "Joins or multi-entity transactions are the norm rather than the exception"
-  - "The dataset is small enough that Postgres is simply less thinking"
-probes:
-  - question: "Traffic is concentrated on one partition key and you are being throttled. The table has capacity."
-    answer: "Hot partition. Add a suffix to spread the key, or bucket by time. Adaptive capacity helps, but it is not a design."
-  - question: "What are your partition key and sort key, and which query does each index serve?"
-    answer: "Expect this one every time. Describing a query you have no index for is the classic miss."
-  - question: "You read from a GSI right after the write. Is it there?"
-    answer: "Maybe not — a GSI is updated asynchronously. A flow that depends on seeing its own write must read the base table, or be designed differently."
-  - question: "Strong or eventual for this read?"
-    answer: "Say which each path uses and why. Defaulting everything to strong doubles the bill for no reason."
-  - question: "How do you make this endpoint exactly-once?"
-    answer: "A conditional write on an idempotency key — `attribute_not_exists` — not a lock."
-  - question: "What does a million writes a day cost, and why is a `Scan` expensive?"
-    answer: "Reason in request units out loud: a write unit is 1 KB, a read unit is 4 KB eventually consistent, and a `Scan` pays for every item it touches, not the ones it returns."
+concepts:
+  - "**Query by key only** — `GetItem` by exact key, `Query` on a partition key plus a sort-key condition; `Scan` is the wrong answer"
+  - "**Indexes are decided up front** — a GSI is a second copy with its own key, updated asynchronously; an LSI is strongly consistent"
+  - "**Single-table design** — `PK=USER#123`, `SK=ORDER#…` packs related entities so one `Query` returns them together"
+  - "**Conditional writes** — `attribute_not_exists` for insert-if-absent, `version = :expected` for optimistic concurrency"
+  - "**Transactions** — `TransactWriteItems` is all-or-nothing across up to 100 items, at twice the cost"
+  - "**Streams** — every change published in order per key, which is how you avoid dual writes"
+  - "**TTL** deletes expired items in the background for free: sessions, carts, rate-limit buckets"
+  - "**Hot partitions throttle** even when the table has capacity — spread the key or bucket by time"
+  - "**Cost is request units** — a write unit is 1 KB, a read unit 4 KB eventually consistent; reason in those out loud"
 ---
 
 # DynamoDB
 
-## How it works
+## Use cases
 
-DynamoDB is a managed key-value and document store. You do not run nodes, choose a
-replication factor or plan a resharding: you declare a key and a capacity mode,
-and it holds single-digit millisecond latency whether the table has a thousand
-items or a trillion.
+### One table, one round trip
 
-Every item lives under a **partition key** and, optionally, a **sort key**. The
-partition key is hashed to place the item; the sort key orders items inside that
-partition and is what makes range queries possible. Data is replicated across
-three availability zones, so a read is either **eventually consistent** (the
-default, cheaper, may be a moment stale) or **strongly consistent** (reads the
-leader replica, costs twice as much).
-
-```mermaid
-flowchart TB
-    App([Service]) -- "Query PK=USER#123" --> Router{"Hash the partition key"}
-    Router --> P1["Partition 1<br/>leader + 2 replicas"]
-    Router --> P2["Partition 2"]
-    Router --> P3["Partition 3<br/>hot key → throttled"]
-    P1 -- "changes" --> Stream{{"DynamoDB Stream<br/>ordered per key · 24h"}}
-    Stream --> Index[("Search index / aggregate<br/>no dual write")]
-
-    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
-    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
-    classDef hot stroke:#e8a33d,stroke-width:2px
-    class Index db
-    class Stream queue
-    class P3 hot
-```
-
-Capacity comes in two modes. **On-demand** bills per request and absorbs spikes
-with no configuration. **Provisioned** reserves read and write units and is
-cheaper for steady, predictable traffic; auto-scaling adjusts it over minutes, not
-seconds.
-
-## Single-table design, in one picture
-
-Because there are no joins, related entities are packed into one table with a
-composite key scheme, so a single `Query` returns a user and their recent orders
-in one round trip. It reads strangely, and it is the idiomatic pattern.
+There are no joins, so related entities are packed under one partition key and
+retrieved together: `PK=USER#123` with a sort key range between `ORDER#` and
+`ORDER#~` returns the profile and the recent orders in a single `Query`. It reads
+strangely and it is the idiomatic pattern.
 
 ```erd
 # One table, several entity types
-app_table || PK=USER#123 with SK between ORDER# and ORDER#~ returns the user's orders in one Query || DynamoDB
+app_table || one Query returns a user and their orders; the SK prefix is the entity type || DynamoDB
 + PK || text || PK
 + SK || text || SK
 + type || USER | ORDER | SESSION
 + attributes || document
 + ttl || epoch seconds || null
-# Item shapes it holds
-examples || the same table, three key patterns
+# The key patterns it holds
+examples || same table, three shapes
 + USER#123 / PROFILE || the profile item
 + USER#123 / ORDER#2026-01-02 || one order, sorted by date
 + ORDER#987 / ITEM#3 || a line item under its order
 ```
 
-## Where it fits in a design
+### Exactly-once without a lock
 
-The comparison worth having ready is with Cassandra: the same wide-column shape
-and the same hot-partition risk, but managed, with conditional writes and
-transactions built in, and a hard 400 KB item limit.
+A conditional write is the concurrency primitive: `PutItem` with
+`attribute_not_exists(pk)` succeeds for the first caller and fails for every
+retry, which is an idempotency key, a username claim or a lock, depending on what
+you put in the key.
 
-> "Key-based access, spiky traffic, and I would rather spend the interview on the
-> access patterns than on running a ring" is the sentence that earns it.
+```mermaid
+flowchart TB
+    R1([Request · key abc]) -- "PutItem attribute_not_exists(pk)" --> T["app_table"]
+    T -- "200 · first writer wins" --> R1
+    R2([Retry · same key abc]) -- "same conditional put" --> T
+    T -. "ConditionalCheckFailed<br/>return the stored result" .-> R2
+    R3([Update · version = 7]) -- "UpdateItem ConditionExpression" --> T
+    T -. "someone else wrote version 8<br/>read and retry" .-> R3
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class T hot
+```
+
+### Fanning changes out with Streams
+
+Every change can be published in order per partition key and kept for 24 hours.
+That stream is how a search index, an aggregate or a notification is driven from
+the table without the application writing to two places and getting them out of
+step.
+
+```mermaid
+flowchart TB
+    App([Service]) -- "PutItem" --> T["app_table"]
+    T --> S{{"DynamoDB Stream<br/>ordered per key · 24h"}}
+    S --> L["Lambda / consumer<br/>idempotent"]
+    L --> ES[("Search index")]
+    L --> Agg[("Aggregate table")]
+    L -. "consumer down > 24h<br/>rebuild from the table" .-> T
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class ES,Agg db
+    class S queue
+    class T hot
+```
+
+### Spreading a hot partition
+
+Traffic concentrated on one partition key is throttled even though the table has
+capacity, because a partition has its own ceiling. The fix is in the key: add a
+suffix and fan the reads across it, or bucket by time so today's writes are not
+all one key.
+
+```mermaid
+flowchart TB
+    Write([Writes · one popular key]) -- "PK=POST#42" --> P1["Partition<br/>throttled"]
+    Write2([Writes · spread]) -- "PK=POST#42#n<br/>random suffix" --> P2["Partition A"]
+    Write2 --> P3["Partition B"]
+    Write2 --> P4["Partition C"]
+    Read([Read the total]) -. "query all 10 suffixes<br/>and sum" .-> P2
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class P1 hot
+```

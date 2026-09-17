@@ -18,99 +18,111 @@ facts:
     value: "North-south. East-west traffic is a service mesh's job"
   - label: "Cost"
     value: "One extra hop, a millisecond or two"
-capabilities:
-  - title: "Know the neighbours"
-    body: |-
-      A **load balancer** distributes connections across instances; it is L4 or L7 and does not know what your API means. An **API gateway** is application-aware: it routes by path and method, validates tokens, applies per-client quotas. A **service mesh** handles service-to-service traffic inside the cluster, with sidecars doing mTLS, retries and tracing.
-
-      A real diagram has all three: DNS → load balancer → gateway tier → services.
-  - title: "Authentication once, at the edge"
-    body: |-
-      The gateway validates the JWT or session, rejects what fails, and forwards a trusted identity header downstream. Services stop each implementing token validation, and revocation has one place to live.
-
-      Fine-grained authorisation — *can this user edit this document* — stays in the service, because only the service knows.
-  - title: "Rate limiting and quotas"
-    body: |-
-      Per API key, per user, per IP, per endpoint. The counters live in Redis so the limit is global rather than per instance.
-
-      This is the most common reason a gateway appears in a design.
-  - title: "Timeouts, retries, circuit breaking"
-    body: |-
-      A budget per route, retries with jitter on idempotent methods only, and a breaker that stops calling a dependency that is failing.
-
-      Say "retries only on idempotent requests" — retrying a payment because it timed out is how you charge someone twice.
-  - title: "Routing, rollout and the BFF"
-    body: |-
-      Path- and header-based routing, API versioning, canary and blue-green by sending 1% of traffic to a new version.
-
-      A **backend-for-frontend** is a gateway specialised per client — one for mobile returning a compact aggregated payload, one for web. It is the answer when a mobile client would otherwise make eight calls to render a screen.
-  - title: "Observability for free"
-    body: |-
-      One place sees every request: latency histograms, error rates by route and client, and the trace id propagated downstream.
-useWhen:
-  - "Any design with external clients — one sentence, then move on: it is table stakes, not a talking point"
-  - "The problem *is* the edge: rate limiting and abuse, API keys and tiers for a public API"
-  - "A mobile client needs eight calls aggregated into one (the BFF)"
-  - "A migration has to shift traffic gradually between an old and a new implementation"
-avoidWhen:
-  - "It would hold business logic — a gateway that joins data is a distributed monolith"
-  - "The traffic is service-to-service: that is a mesh, not the front door"
-  - "You are tempted to spend interview minutes on it; the time belongs elsewhere"
-probes:
-  - question: "Where does the rate limit state live?"
-    answer: "Redis, shared across gateway instances, with a Lua script for the atomic check-and-decrement. Per-instance counters silently let through N times your limit."
-  - question: "Isn't the gateway a single point of failure?"
-    answer: "It is a stateless tier of many instances behind a load balancer, spread across availability zones. Losing one instance drops nothing."
-  - question: "What does the extra hop cost?"
-    answer: "A millisecond or two, in exchange for one implementation of auth, limits and timeouts. Say that plainly rather than defending it."
-  - question: "The gateway now needs data from two services to answer."
-    answer: "That is the BFF pattern at best, and business logic creep at worst. Fan out in parallel with a per-call deadline, and degrade with partial results."
-  - question: "How do WebSockets pass through it?"
-    answer: "The gateway proxies the upgrade and the load balancer must handle long-lived, sticky connections — and deployments have to drain rather than cut them."
+concepts:
+  - "**Know the neighbours** — a load balancer spreads connections, a gateway understands the API, a mesh handles east-west"
+  - "**Authenticate once** — validate the token at the edge and forward a trusted identity header downstream"
+  - "**Authorise in the service** — whether *this* user may edit *that* document is domain knowledge the gateway lacks"
+  - "**Rate limits live in Redis**, not in each instance, or you let through N times your limit"
+  - "**Timeouts and budgets per route**, retries with jitter on idempotent methods only, and a breaker on failing dependencies"
+  - "**Routing and rollout** — path and header routing, versioning, canary by sending 1% of traffic"
+  - "**The BFF** — a gateway per client shape, so mobile gets one aggregated payload instead of eight calls"
+  - "**Observability for free** — one place sees every request, its latency, its error rate and its trace id"
+  - "**Keep logic out** — a gateway that starts joining data has become a distributed monolith"
 ---
 
 # API gateway
 
-## How it works
+## Use cases
 
-An API gateway is a reverse proxy that every external request passes through
-before reaching a service. It exists so that the cross-cutting concerns — the ones
-every service would otherwise reimplement — live in one tier.
+### One front door for every request
+
+Cross-cutting concerns live in one tier instead of being reimplemented in each
+service: terminate TLS, validate the token, apply the quota, set a deadline,
+route. In an interview this is one sentence and a box — it is table stakes, not a
+talking point.
 
 ```mermaid
 flowchart TB
-    Client([Clients]) --> LB["Load balancer<br/>L4/L7 · no idea what your API means"]
+    Client([Clients]) --> LB["Load balancer<br/>L4/L7 · connection spreading"]
     LB --> GW["API gateway tier<br/>stateless · many instances"]
 
-    subgraph EDGE ["What it does, in order"]
+    subgraph EDGE ["In order, per request"]
         direction TB
         TLS["1 · terminate TLS"]
         Auth["2 · validate token<br/>forward trusted identity"]
-        Limit["3 · rate limit<br/>Redis counters, global"]
-        Route["4 · route, shape, set a deadline"]
+        Limit["3 · rate limit"]
+        Route["4 · route + deadline"]
         TLS --> Auth --> Limit --> Route
     end
 
     GW --> TLS
-    Limit -.-> Redis{{"Redis<br/>shared counters"}}
     Route --> S1["Orders service"]
     Route --> S2["Search service"]
-    S1 -. "service mesh<br/>mTLS · retries · tracing" .-> S2
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class Limit hot
+```
+
+### A rate limit that counts every instance
+
+Per-instance counters silently let through N times your limit, because each
+gateway only sees its own share of traffic. The bucket lives in Redis and the
+check-and-decrement is one Lua script, so the limit is global and atomic.
+
+```mermaid
+flowchart TB
+    R([Requests]) --> G1["Gateway 1"]
+    R --> G2["Gateway 2"]
+    R --> G3["Gateway 3"]
+    G1 -- "EVAL token_bucket<br/>one atomic step" --> Redis{{"Redis<br/>rl:{key}:{route}"}}
+    G2 --> Redis
+    G3 --> Redis
+    Redis -- "allowed · remaining" --> G1
+    Redis -. "empty bucket → 429<br/>+ Retry-After" .-> G2
 
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
     classDef hot stroke:#e8a33d,stroke-width:2px
     class Redis queue
-    class Limit hot
+    class Redis hot
 ```
 
-The gateway is itself a horizontally scaled, stateless tier behind that load
-balancer, which is the answer to "isn't it a single point of failure?"
+### One call instead of eight, for mobile
 
-## Where it fits in a design
+A backend-for-frontend is a gateway specialised per client: it fans out in
+parallel, sets a deadline per call, and returns a compact payload shaped for one
+screen. The trap is latency — a BFF is as slow as its slowest dependency unless
+it degrades.
 
-Draw it, say in one sentence what it does — *terminates TLS, validates the token,
-applies the per-user rate limit, routes to the right service* — and move on. Give
-it real attention only when the problem is about the edge itself.
+```mermaid
+flowchart TB
+    Mobile([Mobile app]) -- "GET /home" --> BFF["Mobile BFF<br/>deadline 250 ms"]
+    BFF -- "parallel" --> S1["Profile"]
+    BFF --> S2["Feed"]
+    BFF --> S3["Notifications"]
+    S1 --> BFF
+    S2 --> BFF
+    S3 -. "slow → drop it, ship partial" .-> BFF
+    BFF -- "one compact payload" --> Mobile
 
-> The gateway routes and protects; it does not know your domain. That line is
-> what keeps it from becoming the system.
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class BFF hot
+```
+
+### Shifting traffic to a new version
+
+Header- and weight-based routing is how a migration happens without a flag day:
+1% of traffic to the new implementation, watch its error rate and latency at the
+gateway (which already sees every request), then move the dial.
+
+```mermaid
+flowchart TB
+    Traffic([All traffic]) --> GW["Gateway<br/>weighted routing"]
+    GW -- "99%" --> Old["orders-v1"]
+    GW -- "1% canary" --> New["orders-v2"]
+    GW --> Metrics["Per-route error rate<br/>and latency, at the edge"]
+    Metrics -. "canary worse → weight back to 0" .-> GW
+    Metrics -. "canary healthy → 10%, 50%, 100%" .-> GW
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class GW hot
+```

@@ -18,66 +18,27 @@ facts:
     value: "Ping frames — TCP will not tell you a phone entered a tunnel"
   - label: "Guarantee"
     value: "None. Persist first, push second, resume from a cursor"
-capabilities:
-  - title: "Pick the cheapest transport that works"
-    body: |-
-      | | Direction | Cost | Use it when |
-      | --- | --- | --- | --- |
-      | Polling | Client asks | Wasteful, high latency | Updates are rare and seconds do not matter |
-      | Long polling | Client asks, server holds | One connection per pending update | Simple push, legacy-friendly |
-      | SSE | Server → client only | One HTTP connection, auto-reconnect built in | Feeds, notifications, live dashboards |
-      | WebSocket | Both ways | Stateful connection per client | Chat, collaboration, multiplayer |
-
-      If the client never pushes over the same channel, **SSE is the better answer**: plain HTTP, free reconnect with `Last-Event-ID`, and it survives proxies.
-  - title: "The connection tier is stateful"
-    body: |-
-      Stateless API servers scale on CPU; a socket tier scales on **open connections** and memory per connection.
-
-      A million connections at a few kilobytes each is gigabytes of memory doing nothing but waiting, spread over enough nodes that losing one is survivable.
-  - title: "Heartbeats"
-    body: |-
-      Ping frames on an interval, with a timeout that closes the connection and cleans up the registry entry, are what keep presence honest.
-  - title: "Reconnect and backfill"
-    body: |-
-      Connections drop constantly — mobile networks, laptop lids, deploys. The client reconnects with backoff and resumes from the last message id it saw, and the server serves the gap from durable storage.
-
-      **The socket is a transport, not the delivery guarantee.**
-  - title: "Deploys drain, they do not cut"
-    body: |-
-      Rolling a socket tier disconnects everyone at once and they all reconnect together — a thundering herd against your own service. Drain gradually, and make clients reconnect with jitter.
-useWhen:
-  - "Chat and messaging, collaborative editing, presence and typing indicators"
-  - "Multiplayer state, live location for a ride or a delivery, trading and live scores"
-  - "Notifications where a few seconds of delay would be visible"
-avoidWhen:
-  - "The client only receives — SSE is less machinery, and saying so reads better"
-  - "It is request/response: a normal HTTP call is simpler and cacheable"
-  - "Updates can be batched into a poll every thirty seconds"
-probes:
-  - question: "Which server holds this user's socket?"
-    answer: "A connection registry in Redis mapping user → server, or pub/sub where each server subscribes for its own connections. This is *the* question, and having no answer is the most common failure."
-  - question: "What happens on reconnect?"
-    answer: "The client sends the last message id it saw and the server returns everything since. Say where that history lives — it is not in the socket tier."
-  - question: "How many nodes?"
-    answer: "Do the arithmetic out loud: 1M concurrent users at ~40k connections per node is 25 nodes, plus headroom for a node failing and its share reconnecting."
-  - question: "How do you load balance long-lived connections?"
-    answer: "Stickiness and uneven distribution are given. Least-connections routing, jittered client backoff, and draining on deploy."
-  - question: "A 100k-member channel gets a message."
-    answer: "100k sends. Batch per server holding subscribers, and ask whether a pull-based feed is the real answer at that size."
-  - question: "Why not SSE?"
-    answer: "Have the one-liner: the client needs to push on the same channel, or the protocol needs to be binary. Otherwise SSE."
+concepts:
+  - "**Pick the cheapest transport** — polling, long polling, SSE, then WebSockets; if the client only receives, SSE wins"
+  - "**The tier is stateful** — it scales on open connections and memory per connection, not on CPU"
+  - "**Routing is the real problem** — the message arrives at one node, the socket lives on another"
+  - "**Two answers**: a `user → node` registry in Redis, or pub/sub where each node subscribes for its own connections"
+  - "**Heartbeats** — ping frames and a timeout, because a phone in a tunnel does not close its TCP connection"
+  - "**Persist first, push second** — the socket is a transport, never the delivery guarantee"
+  - "**Reconnect and backfill** — the client resumes from its last message id and the server serves the gap"
+  - "**Deploys drain, they do not cut** — otherwise every client reconnects at once, against you"
+  - "**Fan-out costs sends** — a 100k-member room is 100k pushes; batch per node, or reconsider a pull-based feed"
 ---
 
 # WebSockets
 
-## How it works
+## Use cases
 
-A WebSocket starts as an HTTP request with an `Upgrade` header and becomes a
-persistent, full-duplex TCP connection. Either side can send a message at any
-time, with a few bytes of framing overhead instead of a full HTTP request.
+### Delivering a chat message to the right node
 
-The hard part is not the protocol; it is that the tier holding the connections is
-stateful, so the message and the socket rarely arrive at the same node.
+The whole design in one picture: the sender's socket is on node 1, the
+recipient's on node 7, and the message has to cross. Persist before publishing,
+so a dropped push costs a reconnect rather than a message.
 
 ```mermaid
 flowchart TB
@@ -87,8 +48,6 @@ flowchart TB
     API -- "3 · publish user:B" --> Redis{{"Redis pub/sub<br/>or a user → node registry"}}
     Redis -- "4 · push" --> GW2["Socket node 7<br/>holds B's connection"]
     GW2 -- "WSS" --> B([User B])
-    B -. "5 · reconnect: last_seen_id" .-> API
-    API -. "gap from the store" .-> B
 
     classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
     classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
@@ -98,15 +57,60 @@ flowchart TB
     class API hot
 ```
 
-Step 2 before step 3 is the whole reliability story: the message is durable before
-anyone is told about it, so a dropped publish costs a round trip on reconnect
-rather than a lost message.
+### Coming back after the tunnel
 
-## Where it fits in a design
+Connections drop constantly, so the interesting path is the reconnect: the client
+sends the highest message id it holds, the server returns everything after it
+from durable storage, and only then does the live stream resume.
 
-> The right way to introduce it is to say what it costs in the same breath:
-> *"clients hold WebSockets to a dedicated gateway tier; that tier is stateful, so
-> I need a connection registry in Redis, heartbeats, and a resume-from-cursor path
-> on reconnect."*
+```mermaid
+flowchart TB
+    Client([Client · offline 3 min]) -- "1 · reconnect with jittered backoff" --> GW["Socket node"]
+    GW -- "2 · last_seen_id = 4711" --> API["Chat service"]
+    API -- "3 · SELECT … WHERE id > 4711" --> DB[("Store")]
+    DB -- "4 · the gap, in order" --> Client
+    API -. "5 · live pushes resume" .-> Client
+    Client -. "dedupe on message_id<br/>at-least-once is fine" .-> Client
 
-That sentence answers most of the follow-ups before they are asked.
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class DB db
+    class API hot
+```
+
+### Presence, without lying about it
+
+Presence is heartbeats plus a TTL: each node refreshes a key while the socket is
+alive, and the key expiring *is* the disconnect event. Without it, TCP will
+happily hold a connection to a phone that left the network minutes ago.
+
+```erd
+# Presence · Redis, all keys expire
+presence:{user_id} || refreshed by the socket node every 20s; the TTL expiring is the disconnect || Redis hash
++ node_id || text
++ last_ping || timestamp
++ ttl || 45 seconds
+conn:{node_id} || which sockets a node holds, so a restart can clean up after itself || set
++ member || user_id
+```
+
+### Fanning out to a big room
+
+One message to a 100k-member channel is 100k sends. Batch per node so the
+publish crosses the network once per node rather than once per member — and at
+some size, admit that a pull-based feed is the right answer instead.
+
+```mermaid
+flowchart TB
+    Msg([Message to room 42]) --> Svc["Chat service"]
+    Svc -- "one publish per node,<br/>not per member" --> PS{{"Pub/sub · channel room:42"}}
+    PS --> N1["Node 1<br/>fan out to 30k local sockets"]
+    PS --> N2["Node 2<br/>25k sockets"]
+    PS --> N3["Node 3<br/>45k sockets"]
+    N1 -. "at this size, consider a feed<br/>the client pulls" .-> Feed(["Pull-based feed"])
+
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class PS queue
+    class Svc hot
+```

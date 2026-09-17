@@ -18,66 +18,27 @@ facts:
     value: "A consumer group's committed offset, so restarts resume"
   - label: "Retention"
     value: "Time or size based; compaction keeps the latest per key"
-capabilities:
-  - title: "Replay is the superpower"
-    body: |-
-      Because the log is retained, a new service can be fed the last week of history, a fixed bug can be reprocessed over the affected range, and a rebuilt index or cache can be backfilled from the same data the live system reads.
-
-      No queue gives you this, and it is usually the reason the answer is Kafka rather than SQS.
-  - title: "Delivery semantics"
-    body: |-
-      The default is at-least-once: a consumer that crashes after handling a record but before committing its offset sees it again.
-
-      Exactly-once exists — idempotent producers plus transactions that commit offsets and output records atomically — but it only holds inside Kafka. The moment you write to an external database the practical answer is at-least-once plus an **idempotent consumer**: a unique key, an upsert, or a dedup table.
-  - title: "Consumer lag is the health metric"
-    body: |-
-      Lag is the distance between the head of the partition and the consumer's offset. Rising lag is the early warning for everything, and "I would alert on consumer lag" is a cheap, credible line in the operations part of an answer.
-  - title: "Log compaction"
-    body: |-
-      Retains only the latest record per key, turning a topic into a durable changelog you can rebuild state from — how CDC streams and stateful processors bootstrap.
-  - title: "Buffering absorbs spikes"
-    body: |-
-      A producer writing 50k events/s into a consumer that handles 10k/s does not fail; it builds lag and drains later. That decoupling of write rate from processing rate is the structural reason to put a log between two services.
-useWhen:
-  - "**Several consumers need the same events**: notifications, analytics and a search indexer off one stream"
-  - "**Writes spike far above what downstream absorbs**: ad clicks, IoT telemetry, view events"
-  - "**Work must survive the process doing it**: transcode jobs, notification sends, crawl frontiers"
-  - "**You need history**: event sourcing, audit, backfill, rebuilding a derived store"
-  - "**You are publishing database changes**: the outbox pattern and CDC both land here"
-avoidWhen:
-  - "The caller needs an answer now — that is a synchronous call"
-  - "It is a simple task queue with one consumer and no replay: SQS or a database-backed queue is less to run"
-  - "You want per-message acks, visibility timeouts or native delayed delivery"
-probes:
-  - question: "How many partitions, and what is the key?"
-    answer: "The two numbers that decide ordering and scale. \"Key by user id so a user's events stay ordered; 64 partitions so we can run up to 64 consumers\" is the expected shape."
-  - question: "One celebrity key overloads a single consumer."
-    answer: "Accept it, add a random suffix and give up per-key ordering, or handle that key specially. Adding partitions does not help a single key."
-  - question: "Your consumer processed a record twice."
-    answer: "At-least-once is the guarantee. Answer with an idempotency key and an upsert, not with \"exactly-once\"."
-  - question: "These two events must be processed in order."
-    answer: "Then they must share a key. There is no ordering across partitions."
-  - question: "A record always fails. What happens to the partition behind it?"
-    answer: "It blocks. Retry with backoff, then a dead letter topic, and an alert on that topic."
-  - question: "A consumer is down for an hour."
-    answer: "Nothing is lost; lag grows and it catches up — provided retention is longer than your worst outage. Say that number."
+concepts:
+  - "**The partition is the unit** — of ordering, of parallelism, and of assignment within a consumer group"
+  - "**The key picks the partition**, so everything for one user or order stays ordered together"
+  - "**Consumer groups are independent** — one write, many readers, each with its own offsets"
+  - "**Replay** — retained records mean a new consumer can read last week, and a fixed bug can reprocess a range"
+  - "**At-least-once by default** — a crash between handling and committing replays the record, so consumers are idempotent"
+  - "**Exactly-once holds only inside Kafka**; the moment you write elsewhere, you need an upsert or a dedup key"
+  - "**Consumer lag is the health metric** — the distance between the head and your offset, and the first thing to alert on"
+  - "**Log compaction** keeps the latest record per key, turning a topic into a changelog you can rebuild state from"
+  - "**Buffering is the point** — a fast producer and a slow consumer build lag instead of failing"
 ---
 
 # Kafka
 
-## How it works
+## Use cases
 
-Kafka is a distributed append-only log. Producers append records to a **topic**;
-consumers read forward through it. What makes it different from a queue is that
-reading does not remove anything: records stay for the retention period, and any
-number of independent consumers can read the same records at their own pace, from
-wherever they choose.
+### One write, several independent readers
 
-A topic is split into **partitions**, and a partition is the unit of everything.
-Ordering is guaranteed within a partition and nowhere else. Parallelism is bounded
-by partition count, because within a **consumer group** each partition is assigned
-to exactly one consumer. A record's key decides its partition, so all events for
-one user or one order land in order on the same partition.
+The property that separates a log from a queue. Notifications, analytics and a
+search indexer each read the same partitions at their own pace with their own
+offsets, and adding a fourth consumer later costs the producer nothing.
 
 ```mermaid
 flowchart LR
@@ -101,22 +62,83 @@ flowchart LR
     class C2 hot
 ```
 
-Two groups read the same partitions independently — that is the one-write,
-many-readers property. Within a group, a partition belongs to exactly one
-consumer, which is why partition count is your parallelism ceiling.
+### Publishing database changes without a dual write
 
-Each partition has a leader and replicas. `acks=all` with `min.insync.replicas=2`
-means a write is acknowledged only once it is on two replicas — the setting to
-name when asked about durability. A consumer's position is an **offset** it commits
-back to Kafka, which is why a restarted consumer resumes rather than replays
-everything.
+An event written to Kafka by the application *after* the database commit can be
+lost; one written *before* can describe a transaction that rolled back. The
+outbox row is written in the same transaction as the data, and a relay publishes
+it afterwards, so the two can never disagree.
 
-## Where it fits in a design
+```erd
+# Outbox · the same transaction as the data
+orders || the business write
++ order_id || bigint || PK
++ state || text
+outbox || inserted in the same transaction; the relay deletes it after publishing
++ id || bigint || PK
++ aggregate_id || bigint || → orders
++ event_type || text
++ payload || jsonb
++ published || boolean
+```
 
-A log between two services turns a synchronous dependency into a buffer with
-history. The cost is that everything downstream is now eventually consistent, and
-every consumer needs to be idempotent.
+```mermaid
+flowchart TB
+    App([Service]) -- "BEGIN · insert order + outbox row · COMMIT" --> PG[("Postgres")]
+    PG --> Relay["Relay<br/>reads unpublished rows, or CDC"]
+    Relay -- "publish, then mark published" --> K{{"Kafka"}}
+    K --> C1["Search indexer"]
+    K --> C2["Email sender"]
+    Relay -. "crash after publish, before mark<br/>→ duplicate, consumers are idempotent" .-> K
 
-> "One write, many readers, and I can replay the last week" is the sentence that
-> distinguishes Kafka from a queue. If you need none of that, say so and use the
-> queue.
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class PG db
+    class K queue
+    class Relay hot
+```
+
+### Absorbing a spike the downstream cannot take
+
+A producer writing 50k events/s into a consumer that handles 10k/s does not fail:
+lag grows and drains later. That decoupling of write rate from processing rate is
+the structural reason to put a log between two services.
+
+```mermaid
+flowchart TB
+    Spike([Ad clicks · 50k/s peak]) --> K{{"Kafka<br/>retention 7 days"}}
+    K --> C["Consumer · 10k/s steady"]
+    C --> DB[("Warehouse")]
+    K -. "lag grows during the spike<br/>and drains after it" .-> Lag["Consumer lag<br/>the metric to alert on"]
+    Lag -. "still rising after the spike?<br/>add consumers, up to the partition count" .-> C
+
+    classDef db fill:#34526e,stroke:#6cb2ee,color:#d7dee8
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class DB db
+    class K queue
+    class Lag hot
+```
+
+### Retries and a dead letter topic
+
+A record that always fails blocks its partition, and everything behind it stops.
+Retry with backoff a bounded number of times, then move it aside and keep going —
+and alert on the dead letter topic, because it is where silent data loss hides.
+
+```mermaid
+flowchart TB
+    P0["Partition 0"] --> C["Consumer"]
+    C -- "ok · commit offset" --> P0
+    C -. "fails" .-> Retry["Retry with backoff<br/>bounded attempts"]
+    Retry -. "still failing" .-> DLQ{{"Dead letter topic"}}
+    DLQ --> Alert["Alert · someone looks at it"]
+    Retry -- "succeeds" --> C
+    C -. "without this, the partition<br/>stops at the poison record" .-> P0
+
+    classDef queue fill:#4b4771,stroke:#ad94f7,color:#d7dee8
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class DLQ queue
+    class Retry hot
+```
