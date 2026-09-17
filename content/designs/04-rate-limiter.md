@@ -117,16 +117,24 @@ PUT /admin/limits || {scope, identity_tier, endpoint_pattern, limit, window_sec,
 429 Too Many Requests || || || sent with the X-RateLimit-* and Retry-After headers
 ```
 
-```schema
-# Redis keys
-rl:{identity}:{endpoint}:{window} || || counter or token-bucket state || TTL = window length, so keys clean themselves up; no GC job needed
-# Rules · config service, cached locally with 30s refresh
-tier || || {limit, window, burst, endpoint_overrides{}} ||
-# Response headers
-X-RateLimit-Limit || || requests allowed per window ||
-X-RateLimit-Remaining || || requests left in the current window ||
-X-RateLimit-Reset || || when the window resets ||
-Retry-After || || 30 || seconds to wait before retrying
+```erd
+# Redis · one key per identity and endpoint
+rl:{identity}:{endpoint}:{window} || token-bucket state (a window counter is a single int); TTL = window length, so keys clean themselves up and no GC job is needed
++ tokens || int
++ last_refill_ts || timestamp
+# Rules · config service, 30s local cache
+rules || one entry per identity tier
++ tier || text || PK
++ limit || int
++ window_sec || int
++ burst || int
++ endpoint_overrides || map<text,rule>
+# Response headers · on every limited call
+headers || Retry-After is the number of seconds to wait before retrying, e.g. 30 || HTTP
++ X-RateLimit-Limit || int
++ X-RateLimit-Remaining || int
++ X-RateLimit-Reset || epoch seconds
++ Retry-After || seconds
 ```
 
 TTL-based expiry is worth pointing out: the counters garbage-collect themselves, so there's no cleanup job and memory is bounded by *active* identities, not total identities.

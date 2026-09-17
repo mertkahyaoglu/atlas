@@ -7,10 +7,10 @@ import rehypeSlug from "rehype-slug";
 import rehypeRaw from "rehype-raw";
 import { CodeBlock } from "./CodeBlock";
 import { Mermaid } from "./Mermaid";
+import { ErdDiagram } from "./diagram/ErdDiagram";
 import { FlowDiagram } from "./diagram/FlowDiagram";
 import { isFlowchart } from "@/lib/diagram/parse";
 import { ApiBlock } from "./ApiBlock";
-import { SchemaBlock } from "./SchemaBlock";
 
 /** Pull the plain-text content out of a fenced block's React children. */
 function textOf(children: React.ReactNode): string {
@@ -44,7 +44,7 @@ const components: Components = {
 
     if (language === "mermaid") return isFlowchart(code) ? <FlowDiagram chart={code} /> : <Mermaid chart={code} />;
     if (language === "api") return <ApiBlock source={code} />;
-    if (language === "schema") return <SchemaBlock source={code} />;
+    if (language === "erd") return <ErdDiagram source={code} />;
     return <CodeBlock code={code} language={language} />;
   },
 

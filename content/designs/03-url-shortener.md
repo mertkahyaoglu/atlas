@@ -96,10 +96,29 @@ GET /{code} || || 302 410 redirect to long_url || 410 Gone once the link has exp
 GET /v1/urls/{code}/stats || || 200 click analytics
 ```
 
-```schema
-urls || PK: short_code || long_url, created_at, expires_at, creator_id, is_custom || 7-char base62 partition key, uniformly hashed
-clicks_raw || || short_code, ts, ip_country, referrer, user_agent, device || append-only: Kafka → object storage / warehouse
-clicks_agg || PK: short_code SK: date || count, top_countries, top_referrers ||
+```erd
+# Links
+urls || 7-char base62 partition key, uniformly hashed
++ short_code || text || PK
++ long_url || text
++ created_at || timestamp
++ expires_at || timestamp || null
++ creator_id || bigint
++ is_custom || boolean
+# Click analytics
+clicks_raw || append-only: Kafka → object storage / warehouse || event log
++ short_code || text || → urls
++ ts || timestamp
++ ip_country || text
++ referrer || text
++ user_agent || text
++ device || text
+clicks_agg
++ short_code || text || PK → urls
++ date || date || SK
++ count || bigint
++ top_countries || map<text,int>
++ top_referrers || map<text,int>
 ```
 
 Note the partition key: `short_code` is effectively random (base62 of a hashed/encoded counter), so it distributes perfectly with no hot-partition risk. That's a rare gift — say so.

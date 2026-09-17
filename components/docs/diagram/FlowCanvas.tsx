@@ -1,20 +1,18 @@
 "use client";
 
 import "@xyflow/react/dist/base.css";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
   MarkerType,
   ReactFlow,
   ReactFlowProvider,
-  useReactFlow,
-  useStore,
   type Node,
 } from "@xyflow/react";
-import { Maximize2, Minimize2, Scan, ZoomIn, ZoomOut } from "lucide-react";
 import type { DiagramLayout } from "@/lib/diagram/layout";
 import { cn } from "@/lib/utils";
+import { CanvasToolbar, useCoarsePointer, useFitView } from "./CanvasToolbar";
 import { DiagramContext, type DiagramActions } from "./DiagramContext";
 import { nodeHandles, nodeTypes, type ClusterNode, type DiagramNode } from "./DiagramNodes";
 import { edgeTypes, type DiagramEdge, type EdgeState } from "./FlowEdge";
@@ -26,76 +24,13 @@ interface FlowCanvasProps {
   onToggleExpanded: () => void;
 }
 
-const FIT_PADDING = 12;
-
-function subscribeCoarse(onChange: () => void) {
-  const query = window.matchMedia("(pointer: coarse)");
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-}
-
-/** Touch screens: dragging the inline diagram would trap the page's scroll. */
-function useCoarsePointer() {
-  return useSyncExternalStore(
-    subscribeCoarse,
-    () => window.matchMedia("(pointer: coarse)").matches,
-    () => false,
-  );
-}
-
-function ToolbarButton({ label, onClick, disabled, children }: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className="flex h-7 w-7 items-center justify-center rounded-sm text-inkMuted transition-colors duration-fast hover:bg-raised hover:text-ink disabled:pointer-events-none disabled:opacity-40"
-    >
-      {children}
-    </button>
-  );
-}
-
 function Canvas({ layout, expanded, onToggleExpanded }: FlowCanvasProps) {
   const coarse = useCoarsePointer();
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { setViewport, zoomIn, zoomOut } = useReactFlow();
-  const width = useStore((s) => s.width);
-  const height = useStore((s) => s.height);
-  const zoom = useStore((s) => s.transform[2]);
-  const minZoom = useStore((s) => s.minZoom);
-  const maxZoom = useStore((s) => s.maxZoom);
+  const { fit, ready } = useFitView(layout.width, layout.height);
 
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-
-  /**
-   * Fit from the known layout size rather than measured nodes: a diagram in a
-   * hidden tab has nothing to measure, and this also refits when the pane is
-   * resized, shown, or expanded. Never enlarges past 100%.
-   */
-  const fit = useCallback(
-    (duration = 0) => {
-      if (!width || !height) return;
-      const z = Math.min((width - FIT_PADDING * 2) / layout.width, (height - FIT_PADDING * 2) / layout.height, 1);
-      setViewport({ x: (width - layout.width * z) / 2, y: (height - layout.height * z) / 2, zoom: z }, { duration });
-    },
-    [width, height, layout, setViewport],
-  );
-
-  useEffect(() => {
-    if (!width || !height) return;
-    fit();
-    setReady(true);
-  }, [width, height, fit]);
 
   const focusId = selected ?? hovered;
 
@@ -213,28 +148,7 @@ function Canvas({ layout, expanded, onToggleExpanded }: FlowCanvasProps) {
         </ReactFlow>
       </DiagramContext.Provider>
 
-      <div
-        role="toolbar"
-        aria-label="Diagram view"
-        className="absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded border border-rule bg-surface/90 p-0.5 shadow-sm backdrop-blur"
-      >
-        <ToolbarButton label="Zoom out" onClick={() => zoomOut({ duration: 150 })} disabled={zoom <= minZoom}>
-          <ZoomOut className="h-3.5 w-3.5" aria-hidden />
-        </ToolbarButton>
-        <span aria-live="polite" className="min-w-[2.75rem] text-center font-mono text-micro tabular-nums text-inkMuted">
-          {Math.round(zoom * 100)}%
-        </span>
-        <ToolbarButton label="Zoom in" onClick={() => zoomIn({ duration: 150 })} disabled={zoom >= maxZoom}>
-          <ZoomIn className="h-3.5 w-3.5" aria-hidden />
-        </ToolbarButton>
-        <ToolbarButton label="Fit to view" onClick={() => fit(200)}>
-          <Scan className="h-3.5 w-3.5" aria-hidden />
-        </ToolbarButton>
-        <span className="mx-0.5 h-4 w-px bg-rule" aria-hidden />
-        <ToolbarButton label={expanded ? "Exit full screen" : "Full screen"} onClick={onToggleExpanded}>
-          {expanded ? <Minimize2 className="h-3.5 w-3.5" aria-hidden /> : <Maximize2 className="h-3.5 w-3.5" aria-hidden />}
-        </ToolbarButton>
-      </div>
+      <CanvasToolbar expanded={expanded} onToggleExpanded={onToggleExpanded} onFit={() => fit(200)} />
 
       {selectedNode && (
         <NodeDetailDialog node={selectedNode} layout={layout} onSelect={setSelected} onClose={closeDialog} />

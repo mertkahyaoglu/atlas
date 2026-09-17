@@ -103,15 +103,32 @@ GET /v1/rides/{id} || || 200 status
 WS rider stream || || 101 || receives driver position updates
 ```
 
-```schema
+```erd
 # Redis · hot, in-memory, current state only
-geo:{city_id} || || GEOADD sorted set, geohash score || driver positions
-driver:{id}:status || || available | offered | on_trip || kept alive by a TTL heartbeat
-lock:driver:{id} || || SET NX PX || assignment mutex
+geo:{city_id} || driver positions, written with GEOADD || sorted set
++ member || driver_id
++ score || geohash
+driver:{id}:status || kept alive by a TTL heartbeat || string
++ value || available | offered | on_trip
+lock:driver:{id} || assignment mutex, taken with SET NX PX || string
++ value || owner token
 # Cassandra · persistent
-trips || PK: trip_id || rider, driver, state, timestamps, fare ||
-trip_events || PK: trip_id SK: ts || state transitions || audit trail
-location_hist || PK: (driver_id, day) SK: ts || positions || cold path, analytics only
+trips
++ trip_id || uuid || PK
++ rider_id || uuid
++ driver_id || uuid
++ state || text
++ timestamps || map<state,timestamp>
++ fare || decimal
+trip_events || audit trail of state transitions
++ trip_id || uuid || PK → trips
++ ts || timestamp || SK
++ state || text
+location_hist || cold path, analytics only
++ driver_id || uuid || PK
++ day || date || PK
++ ts || timestamp || SK
++ position || lat, lng
 ```
 
 ---

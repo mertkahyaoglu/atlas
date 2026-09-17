@@ -112,12 +112,46 @@ DEL /v1/holds/{id} || || 204 || release early
 GET /v1/queue/status || || 200 waiting room position
 ```
 
-```schema
-events || PK: event_id || venue, datetime, on_sale_at, status ||
-seats || PK: (event_id, seat_id) || section, row, number, price_tier, state, held_by (session), hold_expires_at, version || state: AVAILABLE | HELD | SOLD; version enables optimistic locking
-holds || PK: hold_id || event_id, seat_ids[], user_id, created_at, expires_at, state || TTL ~10 min
-bookings || PK: booking_id || hold_id, user_id, seat_ids[], payment_id, state ||
-inventory_ga || PK: (event_id, tier) || total, sold || counter for general admission
+```erd
+# Inventory
+events
++ event_id || bigint || PK
++ venue || text
++ datetime || timestamptz
++ on_sale_at || timestamptz
++ status || text
+seats || version enables optimistic locking
++ event_id || bigint || PK → events
++ seat_id || text || PK
++ section || text
++ row || text
++ number || int
++ price_tier || text
++ state || AVAILABLE | HELD | SOLD
++ held_by || session_id || null
++ hold_expires_at || timestamptz || null
++ version || int
+inventory_ga || counter for general admission
++ event_id || bigint || PK → events
++ tier || text || PK
++ total || int
++ sold || int
+# Checkout
+holds || TTL ~10 min
++ hold_id || uuid || PK
++ event_id || bigint || → events
++ seat_ids || text[]
++ user_id || uuid
++ created_at || timestamptz
++ expires_at || timestamptz
++ state || text
+bookings
++ booking_id || uuid || PK
++ hold_id || uuid || → holds
++ user_id || uuid
++ seat_ids || text[]
++ payment_id || uuid
++ state || text
 ```
 
 The `state` field on `seats` plus a `version` column is the whole concurrency-control story. Everything else is supporting cast.
