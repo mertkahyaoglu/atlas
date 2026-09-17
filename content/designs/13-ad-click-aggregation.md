@@ -115,16 +115,36 @@ GET /v1/stats?ad_id=&from=&to=&granularity=minute|hour|day&group_by=country || |
 GET /v1/campaigns/{id}/summary || || 200 campaign summary
 ```
 
-```schema
+```erd
 # Raw · immutable, source of truth
-ad.events || || Kafka topic, partitioned by ad_id, retention 7d ||
-raw archive || || S3 / object storage, partitioned by date and hour || enables replay
-# Aggregates · OLAP, columnar (Druid / ClickHouse / BigQuery)
-aggregates || PK: (ad_id, minute_bucket, country, device) || impressions, clicks, unique_users (HLL sketch), spend ||
-# Dedupe state · stream processor, RocksDB-backed
-event_id → seen || || || TTL = watermark lag window
-# Late / correction log
-corrections || || append-only record of adjustments || applied after a window closed
+ad.events || partitioned by ad_id, retention 7d || Kafka topic
++ event_id || uuid
++ type || impression | click
++ ad_id || bigint
++ user_id || uuid
++ ts || timestamp
++ country || text
++ device || text
+raw archive || partitioned by date and hour; enables replay || object storage
+# Dedupe state · stream processor
+seen_events || TTL = watermark lag window || RocksDB
++ event_id || uuid || PK
++ seen || boolean
+# Aggregates · OLAP, columnar
+aggregates || Druid, ClickHouse or BigQuery
++ ad_id || bigint || PK
++ minute_bucket || timestamp || PK
++ country || text || PK
++ device || text || PK
++ impressions || bigint
++ clicks || bigint
++ unique_users || HLL sketch
++ spend || decimal
+corrections || append-only record of adjustments, applied after a window closed
++ ad_id || bigint || → aggregates
++ minute_bucket || timestamp
++ delta || counts
++ created_at || timestamp
 ```
 
 ---

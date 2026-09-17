@@ -564,6 +564,163 @@
   font-weight: 400;
 }
 
+/* ---------------------------------------------------------------------------
+   Schema diagrams (```erd), drawn with React Flow. Header, row and section
+   sizes here match ERD_METRICS in lib/diagram/erd.ts, which sizes every table
+   by counting characters: change one and change the other.
+--------------------------------------------------------------------------- */
+
+.erd-table {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--flow-node);
+  box-shadow: var(--flow-shadow);
+  color: var(--ink);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  cursor: default;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 160ms ease;
+}
+.erd-table.is-active {
+  border-color: var(--flow-edge-active);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--flow-edge-active) 20%, transparent),
+    var(--flow-shadow);
+}
+.erd-table.is-dimmed {
+  opacity: 0.4;
+}
+
+.erd-table__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--raised);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: pre;
+}
+.erd-table__header svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--accent, var(--ink-muted));
+}
+
+.erd-table__kind {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.erd-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 12px;
+  white-space: pre;
+  transition: background-color 120ms ease;
+}
+.erd-row:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.erd-row.is-linked {
+  background: color-mix(in srgb, var(--flow-edge-active) 14%, transparent);
+}
+.erd-row__name {
+  font-size: 12px;
+  line-height: 16px;
+}
+.erd-row__type {
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Also used in the caption legend, outside the canvas. */
+.erd-badge {
+  flex-shrink: 0;
+  width: 20px;
+  border-radius: 3px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.erd-badge--pk {
+  background: color-mix(in srgb, var(--accent, var(--tone-amber)) 16%, transparent);
+  color: var(--accent, var(--tone-amber));
+}
+.erd-badge--sk {
+  background: color-mix(in srgb, var(--tone-violet) 16%, transparent);
+  color: var(--tone-violet);
+}
+.erd-badge--fk {
+  background: color-mix(in srgb, var(--tone-blue) 16%, transparent);
+  color: var(--tone-blue);
+}
+
+.erd-table__section {
+  box-sizing: border-box;
+  padding: 6px 12px 7px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 17px;
+  white-space: pre;
+}
+/* A table with no columns: the header's rule already separates the note. */
+.erd-table__header + .erd-table__section {
+  border-top-color: transparent;
+}
+.erd-table__keyword {
+  color: var(--accent, var(--ink));
+  font-weight: 600;
+}
+.erd-table__note {
+  padding-left: 8px;
+  border-left: 2px solid var(--accent, var(--rule-strong));
+}
+
+.erd-edge path {
+  stroke: var(--flow-edge);
+  stroke-width: 1.25;
+  transition:
+    stroke 120ms ease,
+    opacity 160ms ease;
+}
+.erd-edge circle {
+  fill: var(--flow-edge);
+  transition: fill 120ms ease;
+}
+.erd-edge.is-active path {
+  stroke: var(--flow-edge-active);
+  stroke-width: 1.75;
+}
+.erd-edge.is-active circle {
+  fill: var(--flow-edge-active);
+}
+.erd-edge.is-dimmed {
+  opacity: 0.2;
+}
+
 /* The node detail dialog. It is portalled to <body>, so it reads theme tokens
    but not the page's accent; `--tone` is the node kind's colour. */
 .flow-dialog {

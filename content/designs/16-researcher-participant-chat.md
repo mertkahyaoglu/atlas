@@ -177,17 +177,71 @@ GET /staff/v1/tickets/{ticket_id}/conversations/{id} || || 200 403 full history 
 POST /staff/v1/conversations/{id}/unmask || {ticket_id, reason, approver_id} || 200 403 participant identity || four-eyes; audit row written before the response
 ```
 
-```schema
-# Postgres · primary + synchronous standby
-conversations || PK: conversation_id UNIQUE: (study_id, researcher_id, participant_id) || participant_alias, state (open | frozen), writable_until, study_version, retention_deadline, legal_hold || the triple is the identity; state is materialized from lifecycle events
-messages || PK: (conversation_id, message_id) UNIQUE: (conversation_id, client_msg_id) || sender_role, body (nullable), attachment_id, created_at, erased_at || message_id from a sequence: one writer, no Snowflake needed
-receipts || PK: (conversation_id, role) || last_delivered_msg_id, last_read_msg_id || two rows per conversation; pointers only move forward
-blocks || PK: (conversation_id, blocker_role) || created_at || checked inside the send transaction
-attachments || PK: attachment_id || conversation_id, object_key, content_type, size, status (quarantined | clean | rejected) || bytes live in object storage; download URLs minted per request
-notification_outbox || PK: outbox_id || recipient_id, conversation_id, message_id, not_before, sent_at || committed with the message; the worker debounces
-# Safety and compliance
-reports || PK: report_id || conversation_id, reporter_role, category, evidence_snapshot, status || opening a report sets legal_hold
-audit_log || PK: audit_id || actor_id, ticket_id, conversation_id, action (view | unmask), reason, created_at || INSERT-only grant; shipped to write-once storage
+All of it lives in one Postgres primary with a synchronous standby.
+
+```erd
+# Access and safety · who may send, who may see
+conversations || the triple is the identity; state is materialized from lifecycle events
++ conversation_id || bigint || PK
++ study_id || uuid
++ researcher_id || uuid
++ participant_id || uuid
++ participant_alias || text
++ state || open | frozen
++ writable_until || timestamptz || null
++ study_version || bigint
++ retention_deadline || timestamptz || null
++ legal_hold || boolean
++ UNIQUE (study_id, researcher_id, participant_id)
+blocks || checked inside the send transaction
++ conversation_id || bigint || PK → conversations
++ blocker_role || role || PK
++ created_at || timestamptz
+reports || opening a report sets legal_hold
++ report_id || bigint || PK
++ conversation_id || bigint || → conversations
++ reporter_role || role
++ category || text
++ evidence_snapshot || jsonb
++ status || text
+audit_log || INSERT-only grant; shipped to write-once storage
++ audit_id || bigint || PK
++ actor_id || uuid
++ ticket_id || uuid
++ conversation_id || bigint || → conversations
++ action || view | unmask
++ reason || text
++ created_at || timestamptz
+# Messages and delivery
+messages || message_id from a sequence: one writer, no Snowflake needed
++ conversation_id || bigint || PK → conversations
++ message_id || bigint || PK
++ client_msg_id || uuid
++ sender_role || role
++ body || text || null
++ attachment_id || bigint || null → attachments
++ created_at || timestamptz
++ erased_at || timestamptz || null
++ UNIQUE (conversation_id, client_msg_id)
+attachments || bytes live in object storage; download URLs minted per request
++ attachment_id || bigint || PK
++ conversation_id || bigint || → conversations
++ object_key || text
++ content_type || text
++ size || bigint
++ status || quarantined | clean | rejected
+receipts || two rows per conversation; pointers only move forward
++ conversation_id || bigint || PK → conversations
++ role || role || PK
++ last_delivered_msg_id || bigint || null → messages.message_id
++ last_read_msg_id || bigint || null → messages.message_id
+notification_outbox || committed with the message; the worker debounces
++ outbox_id || bigint || PK
++ recipient_id || uuid
++ conversation_id || bigint || → conversations
++ message_id || bigint || → messages.message_id
++ not_before || timestamptz
++ sent_at || timestamptz || null
 ```
 
 Two columns on `conversations` carry most of the design. The `(study_id, researcher_id, participant_id)` triple is the identity, which makes creation idempotent and scopes every rule to one study. `state` plus `writable_until` is the gate every send passes through, in the same transaction as the insert.

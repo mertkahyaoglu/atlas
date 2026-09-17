@@ -101,11 +101,30 @@ POST /v1/conversations || {member_ids[]} || 201 conversation_id
 POST /v1/conversations/{id}/read || {up_to_msg_id} || 204
 ```
 
-```schema
-messages || PK: conversation_id SK: message_id (Snowflake, DESC) || sender_id, body, created_at, type || one partition per conversation = ordered, cheap range reads
-conversations || PK: conversation_id || type (dm|group), member_count, last_message_id ||
-members || PK: user_id SK: conversation_id || last_read_msg_id, muted, joined_at || powers "my conversation list" and unread counts
-inbox_queue || PK: user_id SK: message_id || undelivered messages only || offline delivery buffer; rows deleted on ack
+```erd
+# Conversations
+conversations
++ conversation_id || bigint || PK
++ type || dm | group
++ member_count || int
++ last_message_id || bigint || → messages.message_id
+members || powers "my conversation list" and unread counts
++ user_id || bigint || PK
++ conversation_id || bigint || SK → conversations
++ last_read_msg_id || bigint || → messages.message_id
++ muted || boolean
++ joined_at || timestamp
+# Messages
+messages || one partition per conversation = ordered, cheap range reads; message_id is a Snowflake || Cassandra
++ conversation_id || bigint || PK → conversations
++ message_id || bigint || SK DESC
++ sender_id || bigint
++ body || text
++ created_at || timestamp
++ type || text
+inbox_queue || undelivered messages only: an offline delivery buffer, rows deleted on ack
++ user_id || bigint || PK
++ message_id || bigint || SK → messages.message_id
 ```
 
 ---

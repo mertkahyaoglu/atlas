@@ -118,14 +118,27 @@ INCR key || || int || atomic, no read-modify-write race
 MGET k1 k2 k3 || || values || batching cuts round trips
 ```
 
-```schema
+```erd
 # Per node · in memory
-hash_map || || key → node in doubly-linked list || O(1) lookup
-LRU list || || MRU ◄──►◄──►◄──► LRU || O(1) reorder and evict
-entry || || {key, value, expires_at, prev, next} ||
+hash_map || O(1) lookup
++ key || bytes || PK
++ entry || pointer || → entry
+lru_list || MRU at the head, LRU at the tail; O(1) reorder and evict
++ head || pointer || → entry
++ tail || pointer || → entry
+entry || a node in the doubly-linked list
++ key || bytes || PK
++ value || bytes
++ expires_at || timestamp || null
++ prev || pointer || null → entry
++ next || pointer || null → entry
 # Cluster state
-ring || || hash position → physical node, via virtual nodes ||
-membership || || node → alive | suspect | dead || gossip-propagated
+ring || hash position → physical node, via virtual nodes
++ position || hash || PK
++ node_id || text || → membership
+membership || gossip-propagated
++ node_id || text || PK
++ status || alive | suspect | dead
 ```
 
 ---

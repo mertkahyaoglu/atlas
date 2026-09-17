@@ -98,12 +98,31 @@ POST /v1/users/{id}/follow || || 204
 DEL /v1/users/{id}/follow || || 204
 ```
 
-```schema
-posts || PK: post_id || author_id, text, media_urls, created_at, reply_to || post_id is a Snowflake, so it is time-sortable
-social_graph || PK: follower_id SK: followee_id || || who I follow
-social_graph (reverse) || PK: followee_id SK: follower_id || || who follows me; a second, denormalized table for fan-out lookup
-user_timeline || PK: user_id SK: post_id DESC || post_id, author_id || the precomputed feed; references only, not the post body
-users || PK: user_id || name, follower_count, is_celebrity || is_celebrity is a bool derived from follower_count
+```erd
+# Users and posts
+users || is_celebrity is a bool derived from follower_count
++ user_id || bigint || PK
++ name || text
++ follower_count || bigint
++ is_celebrity || boolean
+posts || post_id is a Snowflake, so it is time-sortable
++ post_id || bigint || PK
++ author_id || bigint || → users
++ text || text
++ media_urls || list<text>
++ created_at || timestamp
++ reply_to || bigint || null → posts
+# Graph and feed · denormalized for reads
+social_graph || who I follow
++ follower_id || bigint || PK → users
++ followee_id || bigint || SK → users
+social_graph (reverse) || who follows me; a second, denormalized table for fan-out lookup
++ followee_id || bigint || PK → users
++ follower_id || bigint || SK → users
+user_timeline || the precomputed feed; references only, not the post body
++ user_id || bigint || PK → users
++ post_id || bigint || SK DESC → posts
++ author_id || bigint || → users
 ```
 
 Two directions of the social graph are stored separately because fan-out needs "who follows X" while the UI needs "who does X follow". Same data, two access patterns, two tables. That's Module 2 in action.

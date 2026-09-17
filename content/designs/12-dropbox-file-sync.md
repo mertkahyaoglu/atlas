@@ -108,12 +108,43 @@ GET /v1/files/{id}/versions || || 200 version list
 POST /v1/shares || {file_id, user_id, permission} || 201
 ```
 
-```schema
-files || PK: (user_id, file_id) || path, size, mtime, current_version, is_deleted, parent_folder_id ||
-versions || PK: (file_id, version) || chunk_list[] (ordered hashes), created_at, created_by, size ||
-chunks || PK: chunk_hash || storage_url, size, refcount || SHA-256 of the content; global, content-addressed, shared across all users
-devices || PK: (user_id, device_id) || last_sync_cursor, last_seen ||
-journal || PK: user_id SK: seq || file_id, change_type, version, ts || monotonic seq; the delta feed clients read from
+```erd
+# Content · global
+chunks || SHA-256 of the content; global, content-addressed, shared across all users
++ chunk_hash || sha256 || PK
++ storage_url || text
++ size || int
++ refcount || int
+# Namespace · per user
+files
++ user_id || bigint || PK
++ file_id || bigint || PK
++ path || text
++ size || bigint
++ mtime || timestamp
++ current_version || int || → versions.version
++ is_deleted || boolean
++ parent_folder_id || bigint || null → files.file_id
+versions || chunk_list holds the chunk hashes, in order
++ file_id || bigint || PK → files.file_id
++ version || int || PK
++ chunk_list || list<sha256> || → chunks
++ created_at || timestamp
++ created_by || bigint
++ size || bigint
+# Sync
+journal || monotonic seq; the delta feed clients read from
++ user_id || bigint || PK
++ seq || bigint || SK
++ file_id || bigint || → files.file_id
++ change_type || text
++ version || int
++ ts || timestamp
+devices
++ user_id || bigint || PK
++ device_id || bigint || PK
++ last_sync_cursor || bigint || → journal.seq
++ last_seen || timestamp
 ```
 
 The `chunks` table being global and keyed by content hash is the whole dedupe story: if any user anywhere has already uploaded a chunk with that hash, nobody uploads it again.

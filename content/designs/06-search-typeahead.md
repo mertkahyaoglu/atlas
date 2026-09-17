@@ -101,15 +101,26 @@ GET /v1/search?q=&filters=&sort=&cursor=&limit=20 || || 200 ranked results
 GET /v1/suggest?q=&limit=10 || || 200 completions || separate service, separate SLA
 ```
 
-```schema
+```erd
 # Inverted index · per shard
-term → posting list || || "distributed" → [(doc1, tf=3, pos[...]), (doc7, tf=1), (doc22, tf=5)] ||
-# Doc store · hydration and display fields
-doc_id || || {title, snippet, url, metadata} ||
+postings || "distributed" → [(doc1, tf=3, pos[...]), (doc7, tf=1), (doc22, tf=5)]
++ term || text || PK
++ doc_id || bigint || SK → documents
++ tf || int
++ positions || list<int>
+documents || the doc store: hydration and display fields
++ doc_id || bigint || PK
++ title || text
++ snippet || text
++ url || text
++ metadata || map<text,text>
 # Trie · typeahead, in memory
-trie node || || top-K completions by popularity || cached on every node
+trie_node || top-K completions by popularity, cached on every node
++ prefix || text || PK
++ children || map<char,node>
++ top_k || list<completion>
 # Source of truth
-Postgres / Cassandra || || || the index is derived, never authoritative
+Postgres / Cassandra || the index is derived, never authoritative
 ```
 
 ---
