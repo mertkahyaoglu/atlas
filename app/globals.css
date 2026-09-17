@@ -288,6 +288,15 @@
   }
 }
 
+/* Sidebar sections the reader folded away. Same mechanism as the sidebar
+   collapse above: one class per section id, so nothing flashes open on load.
+   Add a rule here when a section is added to the Sidebar. */
+html.section-collapsed-concepts [data-section="concepts"] [data-section-body],
+html.section-collapsed-tech [data-section="tech"] [data-section-body],
+html.section-collapsed-designs [data-section="designs"] [data-section-body] {
+  display: none;
+}
+
 /* Mermaid (sequence and ER diagrams) injects its own <svg>; keep its type in
    the app's mono face. Centred with margins rather than flex, so a zoomed chart
    overflows to the right and stays scrollable instead of being clipped on the left. */
