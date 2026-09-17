@@ -1,30 +1,13 @@
-import { Ban, Check, Crosshair, Gauge, Layers, ListChecks, Ruler, X, type LucideIcon } from "lucide-react";
+import { Ban, Crosshair, Gauge, Layers, ListChecks, Ruler } from "lucide-react";
 import { DESIGN_CLOSING_TITLES, DESIGN_OPENING_TITLES, slugifyHeading } from "@/lib/content";
 import type { DesignDetails, DesignTradeoff } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { FollowUps } from "./FollowUps";
+import { ACCENT_TINT, CardHeading, MarkedList, PanelLabel } from "./Panels";
 import { InlineMarkdown } from "./InlineMarkdown";
 import { Markdown } from "./Markdown";
 
-/**
- * Structured panels for the opening sections of a design doc, rendered from
- * frontmatter. Built from divs and spans rather than ul/p so the long-form
- * `.doc` list and paragraph styles don't leak in.
- */
-
-const ACCENT_TINT = "bg-[color-mix(in_srgb,var(--accent)_7%,var(--surface))]";
-
-function PanelLabel({ icon: Icon, children, note }: { icon: LucideIcon; children: React.ReactNode; note?: string }) {
-  return (
-    <div className="mb-3.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-rule bg-raised text-[color:var(--accent)]">
-        <Icon className="h-3.5 w-3.5" aria-hidden />
-      </span>
-      <span className="font-mono text-micro uppercase tracking-wide text-inkMuted">{children}</span>
-      {note && <span className="text-tiny text-inkFaint">{note}</span>}
-    </div>
-  );
-}
+/** Structured panels for the sections a design doc keeps in frontmatter. */
 
 function ConceptsPanel({ concepts, hardPart }: { concepts: string[]; hardPart: string }) {
   return (
@@ -53,31 +36,6 @@ function ConceptsPanel({ concepts, hardPart }: { concepts: string[]; hardPart: s
   );
 }
 
-function RequirementList({ items, marker }: { items: string[]; marker: "check" | "diamond" | "cross" }) {
-  return (
-    <div role="list" className="space-y-2.5">
-      {items.map((item, i) => (
-        <div
-          role="listitem"
-          key={i}
-          className={cn("flex gap-2.5 text-small leading-relaxed", marker === "cross" ? "text-inkMuted" : "text-ink")}
-        >
-          {marker === "check" ? (
-            <Check className="mt-[5px] h-3.5 w-3.5 shrink-0 text-[color:var(--accent)]" aria-hidden />
-          ) : marker === "cross" ? (
-            <X className="mt-[5px] h-3.5 w-3.5 shrink-0 text-inkFaint" aria-hidden />
-          ) : (
-            <span aria-hidden className="ml-1 mr-0.5 mt-[9px] h-1.5 w-1.5 shrink-0 rotate-45 bg-[color:var(--accent)]" />
-          )}
-          <span className="min-w-0">
-            <InlineMarkdown>{item}</InlineMarkdown>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function RequirementsPanel({ requirements, scale }: Pick<DesignDetails, "requirements" | "scale">) {
   return (
     <div className="my-6 space-y-4">
@@ -86,13 +44,13 @@ function RequirementsPanel({ requirements, scale }: Pick<DesignDetails, "require
           <PanelLabel icon={ListChecks} note="what it must do">
             Functional
           </PanelLabel>
-          <RequirementList items={requirements.functional} marker="check" />
+          <MarkedList items={requirements.functional} marker="check" />
         </div>
         <div className="rounded-md border border-rule bg-surface p-5">
           <PanelLabel icon={Gauge} note="how well it must do it">
             Non-functional
           </PanelLabel>
-          <RequirementList items={requirements.nonFunctional} marker="diamond" />
+          <MarkedList items={requirements.nonFunctional} marker="diamond" />
         </div>
       </div>
 
@@ -101,7 +59,7 @@ function RequirementsPanel({ requirements, scale }: Pick<DesignDetails, "require
           <PanelLabel icon={Ban} note="deliberately left out">
             Out of scope
           </PanelLabel>
-          <RequirementList items={requirements.outOfScope} marker="cross" />
+          <MarkedList items={requirements.outOfScope} marker="cross" />
         </div>
       )}
 
@@ -186,10 +144,9 @@ export function DesignDeepDives({ design }: { design: DesignDetails }) {
                   <span className="mt-px flex h-6 min-w-[1.75rem] shrink-0 items-center justify-center rounded border border-rule bg-raised px-1 font-mono text-micro tabular-nums text-[color:var(--accent)]">
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  {/* Not an <h3>: `.doc h3` outranks utility classes and would restyle it. */}
-                  <div role="heading" aria-level={3} className="text-small font-semibold leading-snug text-ink">
+                  <CardHeading>
                     <InlineMarkdown>{tradeoff.title}</InlineMarkdown>
-                  </div>
+                  </CardHeading>
                 </div>
                 <div className="min-w-0 text-small leading-relaxed text-inkMuted [&>*+*]:mt-3 [&_p]:max-w-none">
                   <Markdown content={tradeoff.body} />

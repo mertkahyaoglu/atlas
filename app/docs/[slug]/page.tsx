@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { buildToc, designToc, getAllDocs, getAllMeta, getDoc, getScript, getSiblings, toMeta } from "@/lib/content";
+import { buildToc, designToc, getAllDocs, getAllMeta, getDoc, getScript, getSiblings, techToc, toMeta } from "@/lib/content";
 import { DocTitlesProvider } from "@/components/docs/diagram/DocTitles";
 import { splitTabs } from "@/lib/tabs";
 import { accentVar, cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { DocHeader } from "@/components/docs/DocHeader";
 import { Markdown } from "@/components/docs/Markdown";
 import { ContentTabs } from "@/components/docs/ContentTabs";
 import { DesignDeepDives, DesignOverview } from "@/components/docs/DesignPanels";
+import { TechDeepDives, TechOverview } from "@/components/docs/TechPanels";
 import { PrevNext } from "@/components/docs/PrevNext";
 import { Toc } from "@/components/docs/Toc";
 import { ReadingProgress } from "@/components/docs/ReadingProgress";
@@ -31,8 +32,9 @@ export default function DocPage({ params }: PageProps) {
   const doc = getDoc(params.slug);
   if (!doc) notFound();
 
-  const designSections = doc.design ? designToc(doc.design) : { opening: [], closing: [] };
-  const toc = [...designSections.opening, ...buildToc(doc.content), ...designSections.closing];
+  // Panels render sections the markdown body doesn't contain, so they bracket its headings.
+  const panelSections = doc.design ? designToc(doc.design) : doc.tech ? techToc(doc.tech) : { opening: [], closing: [] };
+  const toc = [...panelSections.opening, ...buildToc(doc.content), ...panelSections.closing];
   const { prev, next } = getSiblings(doc.slug);
   // Lets a diagram node's dialog name the concept module it links to.
   const titles = Object.fromEntries(getAllMeta().map((meta) => [meta.slug, meta.title]));
@@ -45,8 +47,9 @@ export default function DocPage({ params }: PageProps) {
         <main id="doc-main" className="min-w-0 flex-1">
           <DocHeader doc={toMeta(doc)} showHardPart={!doc.design} script={getScript(doc.slug)} />
           <DocTitlesProvider titles={titles}>
-            <article className={cn("doc", doc.group === "design" && "doc-design")}>
+            <article className={cn("doc", (doc.group === "design" || doc.group === "tech") && "doc-wide")}>
               {doc.design && <DesignOverview design={doc.design} />}
+              {doc.tech && <TechOverview tech={doc.tech} />}
               {splitTabs(doc.content).map((segment, i) =>
                 segment.kind === "tabs" ? (
                   <ContentTabs key={i} tabs={segment.tabs} />
@@ -55,6 +58,7 @@ export default function DocPage({ params }: PageProps) {
                 ),
               )}
               {doc.design && <DesignDeepDives design={doc.design} />}
+              {doc.tech && <TechDeepDives tech={doc.tech} />}
             </article>
           </DocTitlesProvider>
           <PrevNext prev={prev} next={next} />

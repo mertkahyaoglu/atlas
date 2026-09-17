@@ -235,10 +235,11 @@
 
   /* Design prose sits between full-width diagrams and panels, so it fills the
      column too. Concept modules keep the reading measure. */
-  .doc-design p,
-  .doc-design ul,
-  .doc-design ol,
-  .doc-design blockquote {
+  /* Pages built from panels and diagrams: prose spans the column with them. */
+  .doc-wide p,
+  .doc-wide ul,
+  .doc-wide ol,
+  .doc-wide blockquote {
     @apply max-w-none;
   }
 

@@ -5,83 +5,115 @@ title: "ZooKeeper"
 role: "Coordination service"
 summary: "A small, strongly consistent store for the decisions a cluster must agree on: who leads, who is alive, who owns what."
 tags: ["zookeeper", "consistency", "reliability", "concurrency", "sharding"]
+facts:
+  - label: "What it is"
+    value: "A replicated store for tiny amounts of cluster metadata"
+  - label: "Data"
+    value: "A tree of znodes, each at most a megabyte, usually far less"
+  - label: "Consensus"
+    value: "ZAB over 3 or 5 servers; writes commit on a majority"
+  - label: "Reads"
+    value: "Any member, possibly stale — `sync` first when it matters"
+  - label: "Primitives"
+    value: "Ephemeral znodes, sequential znodes, one-shot watches"
+  - label: "Alternatives"
+    value: "etcd (Raft, behind Kubernetes) and Consul — say \"ZooKeeper or etcd\""
+capabilities:
+  - title: "Leader election, the canonical recipe"
+    body: |-
+      Every candidate creates an ephemeral sequential node under `/election`. The lowest sequence number leads; each other candidate watches only the node directly below it, so a failure wakes exactly one client instead of a herd.
+
+      If the leader dies its ephemeral node disappears, and the next in line is promoted. Be able to sketch this.
+  - title: "Membership and discovery"
+    body: |-
+      Each worker registers an ephemeral node under `/workers` with its address, and a coordinator watches the directory — so joins and failures arrive as events rather than as a polled health check.
+  - title: "Partition assignment"
+    body: |-
+      The elected coordinator writes the shard-to-worker map into a znode; workers watch it and pick up their assignments.
+
+      This is how Kafka (before KRaft), HBase and Druid distribute work, and a good pattern to borrow when a design needs "exactly one process per shard".
+  - title: "Locks, with fencing"
+    body: |-
+      A lock is an ephemeral sequential node plus a watch on the predecessor. Critically, the sequence number is a **fencing token**: the holder passes it to any resource it writes, and the resource rejects anything with a lower token than the highest it has seen.
+
+      That is what makes the lock safe when a process pauses for a long GC and wakes believing it still holds it — the property a Redis lock does not give you.
+  - title: "Configuration that must be consistent"
+    body: |-
+      Feature flags, cluster topology, schema versions. Everyone watches the same znode and converges on the same value.
+useWhen:
+  - "The design contains the phrase **\"exactly one\"**: one scheduler, one writer per shard, one coordinator, one active node in an active-passive pair"
+  - "You need cluster membership with real failure detection rather than polled health checks"
+  - "A lock whose failure would cost money, so it needs a fencing token"
+avoidWhen:
+  - "As a key-value store or a queue — every write goes through one leader"
+  - "For anything high-volume: it is built for thousands of metadata writes per second, not your traffic"
+  - "\"Roughly one worker at a time\" is enough: a lease row in Postgres with an expiry is simpler, and saying so scores"
+probes:
+  - question: "Do you actually need it?"
+    answer: "The best answer often starts by ruling it out: a database lease, a partitioned Kafka consumer group, or idempotent work that tolerates being done twice all avoid another system."
+  - question: "How do you prevent split brain?"
+    answer: "A majority quorum: a partitioned minority cannot commit writes, so there is one leader. The harder half is that a merely *slow* leader still thinks it leads — which is what fencing tokens are for."
+  - question: "Why is a Redis lock not equivalent?"
+    answer: "No consensus, no fencing token, and asynchronous replication, so a failover can lose the lock's existence. Fine for deduplicating work, not for protecting money."
+  - question: "A GC pause expired the session."
+    answer: "The ephemeral node drops and a needless failover happens. Session timeouts are tuned against that, and the work has to be safe to restart."
+  - question: "How much can it hold?"
+    answer: "Small data, a few thousand writes per second, one leader. A design that puts per-request state in it is the mistake being probed."
+  - question: "Does Kafka still use it?"
+    answer: "No — Kafka moved its metadata to its own Raft quorum, KRaft. Knowing that is a cheap signal your knowledge is current."
 ---
 
 # ZooKeeper
 
-## Basics
+## How it works
 
 ZooKeeper is not a database. It is a replicated, strongly consistent store for
 tiny amounts of metadata that a distributed system must agree on: which node is
 the leader, which nodes are alive, which worker owns which partition.
 
-Data lives in a filesystem-like tree of **znodes**, each holding at most a megabyte
-and usually far less. An ensemble of typically three or five servers runs the
-**ZAB** protocol: all writes go through a leader and are committed once a majority
-have them, so writes are linearizable and survive the loss of a minority. Reads
-can be served by any member and may be slightly stale unless you `sync` first.
+An ensemble of typically three or five servers runs the **ZAB** protocol: all
+writes go through a leader and are committed once a majority have them, so writes
+are linearizable and survive the loss of a minority.
 
 Two primitives do most of the work. **Ephemeral znodes** exist only while the
 client's session is alive — the client heartbeats, and if it stops, the node
 vanishes, which is failure detection with no extra machinery. **Sequential znodes**
-get a monotonically increasing suffix on creation, which gives a total order.
-**Watches** let a client be notified once when a znode changes, instead of polling.
+get a monotonically increasing suffix, which gives a total order. **Watches** let a
+client be notified once when a znode changes, instead of polling.
 
-The modern alternatives are **etcd** (Raft, the store behind Kubernetes) and
-**Consul**. They are interchangeable for interview purposes; say "ZooKeeper or
-etcd" and pick one.
+## Leader election, drawn
 
-## Key concepts and capabilities
+```mermaid
+flowchart TB
+    C([Every candidate]) -- "create ephemeral<br/>sequential znode" --> Tree
 
-**Leader election.** Every candidate creates an ephemeral sequential node under
-`/election`. The lowest sequence number is the leader; each other candidate watches
-only the node directly below it, so a failure wakes exactly one client instead of
-a herd. If the leader dies, its ephemeral node disappears and the next in line is
-promoted. This is the canonical recipe and it is worth being able to sketch.
+    subgraph Tree ["/election"]
+        direction TB
+        N1["node-…17<br/>lowest → leader"]
+        N2["node-…18"]
+        N3["node-…19"]
+        N2 -. "watches" .-> N1
+        N3 -. "watches" .-> N2
+    end
 
-**Membership and discovery.** Each worker registers an ephemeral node under
-`/workers` with its address. A coordinator watches the directory, so joins and
-failures arrive as events rather than as a polled health check.
+    N1 --> Work["Leader writes<br/>shard → worker map"]
+    Work --> W["Workers watch it<br/>and take assignments"]
 
-**Partition assignment.** The elected coordinator writes the shard-to-worker map
-into a znode; workers watch it and pick up their assignments. This is how Kafka
-(before KRaft), HBase and Druid distribute work, and it is a good pattern to
-borrow when a design needs "exactly one process handling each shard".
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class N1 hot
+```
 
-**Locks, with fencing.** A lock is an ephemeral sequential node plus a watch on the
-predecessor. Critically, the sequence number is a **fencing token**: the holder
-passes it to any resource it writes, and the resource rejects anything with a token
-lower than the highest it has seen. That is what makes the lock safe when a process
-pauses for a long GC and wakes up believing it still holds it — and it is the
-property a Redis lock does not give you.
+Each candidate watches only its predecessor, so one failure wakes one client
+rather than the whole herd. The sequence number doubles as a **fencing token**:
+pass it to whatever the leader writes to, and a paused leader that wakes up late
+is rejected.
 
-**Configuration that must be consistent.** Feature flags, cluster topology,
-schema versions. Everyone watches the same znode and converges.
+## Where it fits in a design
 
-## When to use it in an interview
+Name it lightly. In most designs one sentence is enough — *"a ZooKeeper or etcd
+ensemble holds the shard assignment and elects the coordinator"* — and the rest of
+your time is better spent on the data path.
 
-Reach for coordination when a design contains the phrase **"exactly one"**: one
-scheduler running the cron, one writer per shard, one coordinator assigning work,
-one active node in an active-passive pair. Also for cluster membership with real
-failure detection, and for locks whose failure would cost money.
-
-Name it lightly. In most designs, one sentence is enough — "a ZooKeeper or etcd
-ensemble holds the shard assignment and elects the coordinator" — and the rest of
-your time is better spent on the data path. The times it deserves more are
-designs about distributed schedulers, custom sharded stores, or anything where
-you are explicitly building a cluster rather than using one.
-
-Do not use it as a key-value store, a queue, or for anything high-volume. Every
-write goes through one leader and is replicated synchronously; it is built for
-thousands of writes per second of metadata, not your traffic. And if your only need
-is "roughly one worker at a time", a lease row in Postgres with an expiry is
-simpler and you should say so.
-
-## What interviewers push on
-
-- **Do you actually need it?** The best answer often starts by ruling it out: a database lease, a partitioned Kafka consumer group, or idempotent work that tolerates being done twice all avoid another system.
-- **Split brain.** Explain how a majority quorum prevents two leaders, and that a partitioned minority cannot commit writes. Then the harder half: a leader that is merely slow may still think it leads, which is what fencing tokens are for.
-- **Why is a Redis lock not equivalent?** No consensus, no fencing token, and replication is asynchronous, so a failover can lose the lock's existence. Fine for deduplicating work, not for protecting money.
-- **What happens when a session expires wrongly?** A long GC pause or a network blip drops the ephemeral node and triggers a needless failover. Session timeouts are tuned against that, and the work must be safe to restart.
-- **Capacity.** Small data, a few thousand writes per second, one leader. If a design puts per-request state in it, that is the mistake being probed.
-- **Kafka and KRaft.** Kafka used ZooKeeper for metadata and now runs its own Raft quorum instead. Knowing that is a cheap signal that your knowledge is current.
+> It deserves more only when the design is *about* coordination: a distributed
+> scheduler, a custom sharded store, or anything where you are building a cluster
+> rather than using one.

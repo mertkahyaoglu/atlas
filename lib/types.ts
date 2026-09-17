@@ -37,7 +37,8 @@ export interface DesignTradeoff {
   body: string;
 }
 
-export interface DesignFollowUp {
+/** A question a reader should try to answer before revealing the answer. */
+export interface FollowUp {
   question: string;
   answer: string;
 }
@@ -57,7 +58,29 @@ export interface DesignDetails {
     conclusion?: string;
   };
   tradeoffs: DesignTradeoff[];
-  followUps: DesignFollowUp[];
+  followUps: FollowUp[];
+}
+
+export interface TechFact {
+  label: string;
+  value: string;
+}
+
+export interface TechCapability {
+  title: string;
+  /** Markdown: may contain code blocks, tables and lists. */
+  body: string;
+}
+
+/** The structured sections of a technology doc, read from frontmatter. */
+export interface TechDetails {
+  /** The two-word role, repeated from `DocMeta` so the panels are self-contained. */
+  role: string;
+  facts: TechFact[];
+  capabilities: TechCapability[];
+  useWhen: string[];
+  avoidWhen: string[];
+  probes: FollowUp[];
 }
 
 /** Who is speaking in an interview script. `note` is a coaching aside, not a voice. */
@@ -91,6 +114,8 @@ export interface Doc extends DocMeta {
   content: string;
   /** Design docs only. Kept off DocMeta so sidebar and card payloads stay small. */
   design?: DesignDetails;
+  /** Technology docs only, for the same reason. */
+  tech?: TechDetails;
 }
 
 export interface TocEntry {

@@ -4,12 +4,15 @@ import matter from "gray-matter";
 import { parseScript } from "./script";
 import type {
   DesignDetails,
-  DesignFollowUp,
   DesignTradeoff,
   Doc,
   DocGroup,
   DocMeta,
+  FollowUp,
   InterviewScript,
+  TechCapability,
+  TechDetails,
+  TechFact,
   TocEntry,
 } from "./types";
 
@@ -64,7 +67,7 @@ function readDesign(slug: string, data: Record<string, unknown>): DesignDetails 
     tradeoffs: records<DesignTradeoff>(data.tradeoffs, (item) =>
       item.title && item.body ? { title: String(item.title), body: String(item.body) } : null,
     ),
-    followUps: records<DesignFollowUp>(data.followUps, (item) =>
+    followUps: records<FollowUp>(data.followUps, (item) =>
       item.question && item.answer ? { question: String(item.question), answer: String(item.answer) } : null,
     ),
   };
@@ -86,6 +89,41 @@ function readDesign(slug: string, data: Record<string, unknown>): DesignDetails 
   return hasPanels ? design : undefined;
 }
 
+/**
+ * Technology docs keep everything but the narrative in frontmatter: the facts
+ * strip, the capability cards, when to reach for it and what gets probed.
+ */
+function readTech(slug: string, data: Record<string, unknown>): TechDetails | undefined {
+  const tech: TechDetails = {
+    role: String(data.role ?? ""),
+    facts: records<TechFact>(data.facts, (item) =>
+      item.label && item.value ? { label: String(item.label), value: String(item.value) } : null,
+    ),
+    capabilities: records<TechCapability>(data.capabilities, (item) =>
+      item.title && item.body ? { title: String(item.title), body: String(item.body) } : null,
+    ),
+    useWhen: strings(data.useWhen),
+    avoidWhen: strings(data.avoidWhen),
+    probes: records<FollowUp>(data.probes, (item) =>
+      item.question && item.answer ? { question: String(item.question), answer: String(item.answer) } : null,
+    ),
+  };
+
+  const missing = [
+    !tech.role && "role",
+    tech.facts.length === 0 && "facts",
+    tech.capabilities.length === 0 && "capabilities",
+    tech.useWhen.length === 0 && "useWhen",
+    tech.avoidWhen.length === 0 && "avoidWhen",
+    tech.probes.length === 0 && "probes",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    console.warn(`[content] ${slug}: tech frontmatter is missing ${missing.join(", ")}`);
+  }
+
+  return tech.facts.length > 0 || tech.capabilities.length > 0 ? tech : undefined;
+}
+
 /** Words shown in the design panels, so reading time still counts them. */
 function designWordCount(design: DesignDetails | undefined): number {
   if (!design) return 0;
@@ -99,6 +137,19 @@ function designWordCount(design: DesignDetails | undefined): number {
     design.scale?.conclusion ?? "",
     ...design.tradeoffs.flatMap((t) => [t.title, t.body]),
     ...design.followUps.flatMap((f) => [f.question, f.answer]),
+  ].join(" ");
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+/** Words shown in the technology panels, counted for the same reason. */
+function techWordCount(tech: TechDetails | undefined): number {
+  if (!tech) return 0;
+  const text = [
+    ...tech.facts.flatMap((fact) => [fact.label, fact.value]),
+    ...tech.capabilities.flatMap((capability) => [capability.title, capability.body]),
+    ...tech.useWhen,
+    ...tech.avoidWhen,
+    ...tech.probes.flatMap((probe) => [probe.question, probe.answer]),
   ].join(" ");
   return text.split(/\s+/).filter(Boolean).length;
 }
@@ -117,7 +168,8 @@ function readGroup(group: DocGroup): Doc[] {
       // DocHeader renders the title, so drop the body's leading H1.
       const content = body.replace(/^\s*#\s+.*\n+/, "");
       const design = group === "design" ? readDesign(slug, data) : undefined;
-      const words = content.split(/\s+/).length + designWordCount(design);
+      const tech = group === "tech" ? readTech(slug, data) : undefined;
+      const words = content.split(/\s+/).length + designWordCount(design) + techWordCount(tech);
 
       return {
         slug,
@@ -131,6 +183,7 @@ function readGroup(group: DocGroup): Doc[] {
         readingMinutes: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
         content,
         design,
+        tech,
       } satisfies Doc;
     })
     .sort((a, b) => a.order - b.order);
@@ -175,7 +228,7 @@ export function getScript(slug: string): InterviewScript | undefined {
 
 /** Strip content so client components receive only what they render. */
 export function toMeta(doc: Doc): DocMeta {
-  const { content: _content, design: _design, ...meta } = doc;
+  const { content: _content, design: _design, tech: _tech, ...meta } = doc;
   return meta;
 }
 
@@ -225,6 +278,26 @@ export function designToc(design: DesignDetails): { opening: TocEntry[]; closing
     closing: [
       ...(design.tradeoffs.length > 0 ? [tocEntry(tradeoffsTitle)] : []),
       ...(design.followUps.length > 0 ? [tocEntry(followUpsTitle)] : []),
+    ],
+  };
+}
+
+/** Headings rendered by the technology panels. */
+export const TECH_OPENING_TITLES = ["At a glance"] as const;
+export const TECH_CLOSING_TITLES = [
+  "Key concepts and capabilities",
+  "When to use it in an interview",
+  "What interviewers push on",
+] as const;
+
+export function techToc(tech: TechDetails): { opening: TocEntry[]; closing: TocEntry[] } {
+  const [capabilitiesTitle, useTitle, probesTitle] = TECH_CLOSING_TITLES;
+  return {
+    opening: tech.facts.length > 0 ? TECH_OPENING_TITLES.map(tocEntry) : [],
+    closing: [
+      ...(tech.capabilities.length > 0 ? [tocEntry(capabilitiesTitle)] : []),
+      ...(tech.useWhen.length > 0 || tech.avoidWhen.length > 0 ? [tocEntry(useTitle)] : []),
+      ...(tech.probes.length > 0 ? [tocEntry(probesTitle)] : []),
     ],
   };
 }

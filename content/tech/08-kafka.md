@@ -5,11 +5,67 @@ title: "Kafka"
 role: "Event log"
 summary: "A durable, replayable, partitioned log — the backbone of nearly every asynchronous design."
 tags: ["kafka", "event-driven", "stream-processing", "outbox", "idempotency"]
+facts:
+  - label: "Model"
+    value: "Append-only log; reading does not remove anything"
+  - label: "Unit of everything"
+    value: "The partition: ordering, parallelism and assignment"
+  - label: "Ordering"
+    value: "Within a partition only — the key decides the partition"
+  - label: "Durability"
+    value: "`acks=all` with `min.insync.replicas=2`"
+  - label: "Position"
+    value: "A consumer group's committed offset, so restarts resume"
+  - label: "Retention"
+    value: "Time or size based; compaction keeps the latest per key"
+capabilities:
+  - title: "Replay is the superpower"
+    body: |-
+      Because the log is retained, a new service can be fed the last week of history, a fixed bug can be reprocessed over the affected range, and a rebuilt index or cache can be backfilled from the same data the live system reads.
+
+      No queue gives you this, and it is usually the reason the answer is Kafka rather than SQS.
+  - title: "Delivery semantics"
+    body: |-
+      The default is at-least-once: a consumer that crashes after handling a record but before committing its offset sees it again.
+
+      Exactly-once exists — idempotent producers plus transactions that commit offsets and output records atomically — but it only holds inside Kafka. The moment you write to an external database the practical answer is at-least-once plus an **idempotent consumer**: a unique key, an upsert, or a dedup table.
+  - title: "Consumer lag is the health metric"
+    body: |-
+      Lag is the distance between the head of the partition and the consumer's offset. Rising lag is the early warning for everything, and "I would alert on consumer lag" is a cheap, credible line in the operations part of an answer.
+  - title: "Log compaction"
+    body: |-
+      Retains only the latest record per key, turning a topic into a durable changelog you can rebuild state from — how CDC streams and stateful processors bootstrap.
+  - title: "Buffering absorbs spikes"
+    body: |-
+      A producer writing 50k events/s into a consumer that handles 10k/s does not fail; it builds lag and drains later. That decoupling of write rate from processing rate is the structural reason to put a log between two services.
+useWhen:
+  - "**Several consumers need the same events**: notifications, analytics and a search indexer off one stream"
+  - "**Writes spike far above what downstream absorbs**: ad clicks, IoT telemetry, view events"
+  - "**Work must survive the process doing it**: transcode jobs, notification sends, crawl frontiers"
+  - "**You need history**: event sourcing, audit, backfill, rebuilding a derived store"
+  - "**You are publishing database changes**: the outbox pattern and CDC both land here"
+avoidWhen:
+  - "The caller needs an answer now — that is a synchronous call"
+  - "It is a simple task queue with one consumer and no replay: SQS or a database-backed queue is less to run"
+  - "You want per-message acks, visibility timeouts or native delayed delivery"
+probes:
+  - question: "How many partitions, and what is the key?"
+    answer: "The two numbers that decide ordering and scale. \"Key by user id so a user's events stay ordered; 64 partitions so we can run up to 64 consumers\" is the expected shape."
+  - question: "One celebrity key overloads a single consumer."
+    answer: "Accept it, add a random suffix and give up per-key ordering, or handle that key specially. Adding partitions does not help a single key."
+  - question: "Your consumer processed a record twice."
+    answer: "At-least-once is the guarantee. Answer with an idempotency key and an upsert, not with \"exactly-once\"."
+  - question: "These two events must be processed in order."
+    answer: "Then they must share a key. There is no ordering across partitions."
+  - question: "A record always fails. What happens to the partition behind it?"
+    answer: "It blocks. Retry with backoff, then a dead letter topic, and an alert on that topic."
+  - question: "A consumer is down for an hour."
+    answer: "Nothing is lost; lag grows and it catches up — provided retention is longer than your worst outage. Say that number."
 ---
 
 # Kafka
 
-## Basics
+## How it works
 
 Kafka is a distributed append-only log. Producers append records to a **topic**;
 consumers read forward through it. What makes it different from a queue is that
@@ -23,62 +79,44 @@ by partition count, because within a **consumer group** each partition is assign
 to exactly one consumer. A record's key decides its partition, so all events for
 one user or one order land in order on the same partition.
 
+```mermaid
+flowchart LR
+    Prod([Producers]) -- "key = user_id" --> T
+
+    subgraph T ["Topic · 3 partitions"]
+        direction TB
+        P0["P0 · offsets 0…n"]
+        P1["P1 · offsets 0…n"]
+        P2["P2 · offsets 0…n"]
+    end
+
+    P0 --> C1["Group A · consumer 1"]
+    P1 --> C2["Group A · consumer 2"]
+    P2 --> C2
+    P0 --> D1["Group B · indexer<br/>its own offsets"]
+    P1 --> D1
+    P2 --> D1
+
+    classDef hot stroke:#e8a33d,stroke-width:2px
+    class C2 hot
+```
+
+Two groups read the same partitions independently — that is the one-write,
+many-readers property. Within a group, a partition belongs to exactly one
+consumer, which is why partition count is your parallelism ceiling.
+
 Each partition has a leader and replicas. `acks=all` with `min.insync.replicas=2`
 means a write is acknowledged only once it is on two replicas — the setting to
 name when asked about durability. A consumer's position is an **offset** it commits
 back to Kafka, which is why a restarted consumer resumes rather than replays
 everything.
 
-## Key concepts and capabilities
+## Where it fits in a design
 
-**Replay is the superpower.** Because the log is retained, a new service can be
-added and fed the last week of history, a bug can be fixed and the affected range
-reprocessed, and a rebuilt search index or cache can be backfilled from the same
-data the live system reads. No queue gives you this, and it is usually the reason
-the answer is Kafka rather than SQS.
+A log between two services turns a synchronous dependency into a buffer with
+history. The cost is that everything downstream is now eventually consistent, and
+every consumer needs to be idempotent.
 
-**Delivery semantics.** The default is at-least-once: a consumer that crashes
-after handling a record but before committing its offset will see it again.
-Exactly-once exists — idempotent producers plus transactions that commit offsets
-and output records atomically — but it only holds inside Kafka. The moment you
-write to an external database, the practical answer is at-least-once delivery with
-an **idempotent consumer**: a unique key, an upsert, or a dedup table.
-
-**Consumer lag is the health metric.** Lag is the distance between the head of the
-partition and the consumer's offset. Rising lag is the early warning for
-everything, and "I would alert on consumer lag" is a cheap, credible line in the
-operations part of an answer.
-
-**Log compaction** retains only the latest record per key, turning a topic into a
-durable changelog you can rebuild state from — how CDC streams and stateful
-processors bootstrap.
-
-**Buffering absorbs spikes.** A producer writing 50k events/s into a consumer that
-handles 10k/s does not fail; it builds lag and drains later. That decoupling of
-write rate from processing rate is the structural reason to put a log between two
-services.
-
-## When to use it in an interview
-
-Kafka belongs in a design when any of these are true:
-
-- **Several consumers need the same events.** One write, many independent readers — a notification service, an analytics pipeline and a search indexer all off one stream.
-- **Writes spike far above what downstream can absorb.** Ingest fast, process steadily: ad clicks, IoT telemetry, view events.
-- **Work must survive the process doing it.** Video transcode jobs, notification sends, crawl frontiers.
-- **You need history.** Event sourcing, audit, backfill, rebuilding a derived store.
-- **You are publishing changes from a database.** The outbox pattern and CDC both land in Kafka.
-
-It is the wrong tool for a request that needs an answer now — that is a
-synchronous call — and heavier than needed for a simple task queue with a single
-consumer and no replay, where SQS or a database-backed queue is less to run and
-gives you per-message acknowledgement and native delay and retry handling.
-
-## What interviewers push on
-
-- **How many partitions, and what is the key?** These are the two numbers that decide ordering and scale. "Key by user id so a user's events stay ordered; 64 partitions so we can run up to 64 consumers" is the expected shape of answer.
-- **Hot partitions.** A celebrity key overloads one consumer. Either accept it, add a random suffix and give up per-key ordering, or handle that key specially.
-- **Duplicates.** Push on at-least-once delivery is guaranteed. Answer with an idempotency key and an upsert, not with "exactly-once".
-- **Ordering across partitions.** There is none. If two events must be ordered, they must share a key.
-- **Poison messages.** A record that always fails blocks the partition. Retry with backoff, then a dead letter topic, and an alert on it.
-- **Kafka versus a queue.** Replay, multiple consumer groups and ordering versus per-message acks, visibility timeouts and easy delayed delivery. Say which properties the design needs.
-- **What if a consumer is down for an hour?** Nothing is lost; lag grows, then it catches up — provided retention is longer than your worst outage.
+> "One write, many readers, and I can replay the last week" is the sentence that
+> distinguishes Kafka from a queue. If you need none of that, say so and use the
+> queue.
