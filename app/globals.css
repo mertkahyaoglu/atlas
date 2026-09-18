@@ -892,3 +892,177 @@ html.section-collapsed-designs [data-section="designs"] [data-section-body] {
 .script-body .doc :not(pre) > code {
   overflow-wrap: anywhere;
 }
+
+/* ---------------------------------------------------------------------------
+   Playground. Reuses the flowchart node and dialog styling; adds heat (red
+   mixed in as a component nears capacity), a utilization meter and edges whose
+   dash speed follows their traffic.
+--------------------------------------------------------------------------- */
+
+.pg-page {
+  height: calc(100vh - 3.5rem);
+  min-height: 480px;
+}
+
+.pg-canvas .react-flow {
+  --xy-background-color: var(--flow-canvas);
+  background: var(--flow-canvas);
+}
+
+.pg-handle.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--flow-canvas);
+  background: var(--ink-faint);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.react-flow__node:hover .pg-handle.react-flow__handle,
+.react-flow__node.selected .pg-handle.react-flow__handle,
+.react-flow.connecting .pg-handle.react-flow__handle {
+  opacity: 1;
+}
+
+.pg-node {
+  --heat: 0;
+  --util: 0;
+  min-width: 190px;
+  padding-bottom: 12px;
+  cursor: grab;
+  border-color: color-mix(in srgb, var(--tone-red) calc(var(--heat) * 1%), color-mix(in srgb, var(--tone) 55%, var(--rule)));
+  background: color-mix(in srgb, var(--tone-red) calc(var(--heat) * 0.22%), color-mix(in srgb, var(--tone) 10%, var(--flow-node)));
+  transition:
+    border-color 300ms ease,
+    background-color 300ms ease,
+    box-shadow 200ms ease;
+}
+.pg-node.is-neutral {
+  border-color: color-mix(in srgb, var(--tone-red) calc(var(--heat) * 1%), var(--rule-strong));
+  background: color-mix(in srgb, var(--tone-red) calc(var(--heat) * 0.22%), var(--flow-node));
+}
+.react-flow__node.dragging .pg-node {
+  cursor: grabbing;
+}
+.pg-node.is-overloaded {
+  animation: pg-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pg-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--tone-red) 45%, transparent),
+      var(--flow-shadow);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px color-mix(in srgb, var(--tone-red) 0%, transparent),
+      var(--flow-shadow);
+  }
+}
+
+.pg-node__meter {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 5px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-faint) 25%, transparent);
+}
+.pg-node__meter-fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--util) * 100%);
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--tone-red) calc(var(--heat) * 1%), var(--tone));
+  transition:
+    width 300ms ease,
+    background-color 300ms ease;
+}
+.pg-node.is-neutral .pg-node__meter-fill {
+  background: color-mix(in srgb, var(--tone-red) calc(var(--heat) * 1%), var(--ink-muted));
+}
+
+.pg-node__pct {
+  position: absolute;
+  top: -8px;
+  right: 10px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--ink-faint);
+  color: var(--flow-canvas);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 300ms ease;
+}
+.pg-node__pct.is-warm {
+  background: var(--tone-amber);
+}
+.pg-node__pct.is-hot,
+.pg-node__pct.is-overloaded {
+  background: var(--tone-red);
+}
+
+.pg-edge.react-flow__edge-path {
+  --dash-ms: 1500ms;
+  --width: 1.25;
+  stroke: var(--flow-edge);
+  stroke-width: var(--width);
+  transition:
+    stroke 300ms ease,
+    stroke-width 300ms ease;
+}
+.pg-edge.is-live {
+  stroke: color-mix(in srgb, var(--design) 70%, var(--flow-edge));
+  stroke-dasharray: 6 5;
+  animation: flow-dash var(--dash-ms) linear infinite;
+}
+.pg-edge.is-choked {
+  stroke: var(--tone-red);
+}
+.pg-edge.is-shed {
+  stroke-dasharray: 2 5;
+}
+.react-flow__edge.selected .pg-edge {
+  stroke: var(--ink);
+}
+.pg-edge-label {
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.pg-controls.react-flow__controls {
+  box-shadow: var(--flow-shadow);
+}
+.pg-controls .react-flow__controls-button {
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-muted);
+}
+.pg-controls .react-flow__controls-button:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+.pg-controls .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.pg-range {
+  accent-color: var(--design);
+}
+
+.pg-palette-item .flow-node__icon {
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+  color: var(--tone);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-edge.is-live,
+  .pg-node.is-overloaded {
+    animation: none;
+  }
+}

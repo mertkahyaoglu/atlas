@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, PanelLeftClose, X } from "lucide-react";
+import { ChevronRight, FlaskConical, PanelLeftClose, X } from "lucide-react";
 import type { DocMeta } from "@/lib/types";
 import { useUiStore } from "@/store/useUiStore";
 import { cn } from "@/lib/utils";
@@ -202,6 +202,23 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto py-6">
+          <nav className="px-3">
+            <Link
+              href="/playground"
+              onClick={close}
+              aria-current={pathname === "/playground" ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-2.5 rounded border px-3 py-2 text-small transition-colors duration-fast",
+                pathname === "/playground"
+                  ? "border-design bg-designSoft text-ink"
+                  : "border-rule text-inkMuted hover:border-ruleStrong hover:text-ink",
+              )}
+            >
+              <FlaskConical className="h-4 w-4 shrink-0 text-design" aria-hidden />
+              <span className="leading-snug">Playground</span>
+              <span className="ml-auto font-mono text-micro text-inkFaint">beta</span>
+            </Link>
+          </nav>
           {SECTIONS.map((section) => (
             <Section
               key={section.id}
