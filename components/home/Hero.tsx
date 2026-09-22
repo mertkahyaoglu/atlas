@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Copy, Scale, Server, Timer, type LucideIcon } from "lucide-react";
+import { ArrowRight, Copy, Scale, Server, Timer, type LucideIcon } from "lucide-react";
 
 interface Side {
   label: string;
@@ -152,6 +152,15 @@ export function Hero() {
         up, pages on the technologies they name, and full designs with architecture
         diagrams, trade-offs and the follow-up questions that actually get asked.
       </p>
+
+      <Link
+        href="/coding"
+        className="group mt-5 inline-flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded border border-rule px-3 py-2 text-small text-inkMuted transition-colors duration-fast hover:border-[color:var(--coding)] hover:text-ink"
+      >
+        <span className="font-mono text-micro uppercase tracking-wide text-[color:var(--coding)]">Also here</span>
+        <span>The coding track: data structures and algorithms, drawn step by step</span>
+        <ArrowRight className="h-3.5 w-3.5 text-inkFaint transition-colors group-hover:text-[color:var(--coding)]" aria-hidden />
+      </Link>
 
       <div className="mt-10 grid gap-4 md:grid-cols-2">
         {TRADES.map((trade, index) => (

@@ -3,6 +3,8 @@ import path from "node:path";
 import matter from "gray-matter";
 import { parseScript } from "./script";
 import type {
+  CodingDetails,
+  ComplexityRow,
   DesignDetails,
   DesignTradeoff,
   Doc,
@@ -13,6 +15,7 @@ import type {
   TechDetails,
   TechFact,
   TocEntry,
+  Track,
 } from "./types";
 
 const CONTENT_ROOT = path.join(process.cwd(), "content");
@@ -20,10 +23,15 @@ const GROUP_DIR: Record<DocGroup, string> = {
   concept: "concepts",
   design: "designs",
   tech: "tech",
+  coding: "coding",
 };
 
-/** Reading order of the groups: the ideas, then the tools, then the problems. */
-const GROUP_ORDER: DocGroup[] = ["concept", "tech", "design"];
+/**
+ * Reading order of the groups: the ideas, then the tools, then the problems.
+ * Coding sits last because it is a separate track with its own route, not a
+ * step in the system design sequence.
+ */
+const GROUP_ORDER: DocGroup[] = ["concept", "tech", "design", "coding"];
 
 const WORDS_PER_MINUTE = 200;
 
@@ -110,6 +118,55 @@ function readTech(slug: string, data: Record<string, unknown>): TechDetails | un
   return tech.facts.length > 0 || tech.concepts.length > 0 ? tech : undefined;
 }
 
+/**
+ * Coding docs keep their cost table, the signals that call for the structure,
+ * the pitfalls and the follow-ups in frontmatter, so those sections stay
+ * uniform across concepts and can be scanned without reading the body.
+ */
+function readCoding(slug: string, data: Record<string, unknown>): CodingDetails | undefined {
+  const coding: CodingDetails = {
+    complexity: records<ComplexityRow>(data.complexity, (item) =>
+      item.op && item.time
+        ? {
+            op: String(item.op),
+            time: String(item.time),
+            space: item.space ? String(item.space) : undefined,
+            note: item.note ? String(item.note) : undefined,
+          }
+        : null,
+    ),
+    reachFor: strings(data.reachFor),
+    pitfalls: strings(data.pitfalls),
+    followUps: records<FollowUp>(data.followUps, (item) =>
+      item.question && item.answer ? { question: String(item.question), answer: String(item.answer) } : null,
+    ),
+  };
+
+  const missing = [
+    coding.complexity.length === 0 && "complexity",
+    coding.reachFor.length === 0 && "reachFor",
+    coding.pitfalls.length === 0 && "pitfalls",
+    coding.followUps.length === 0 && "followUps",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    console.warn(`[content] ${slug}: coding frontmatter is missing ${missing.join(", ")}`);
+  }
+
+  return coding.complexity.length > 0 || coding.reachFor.length > 0 ? coding : undefined;
+}
+
+/** Words shown in the coding panels, counted for the same reason. */
+function codingWordCount(coding: CodingDetails | undefined): number {
+  if (!coding) return 0;
+  const text = [
+    ...coding.complexity.flatMap((row) => [row.op, row.note ?? ""]),
+    ...coding.reachFor,
+    ...coding.pitfalls,
+    ...coding.followUps.flatMap((f) => [f.question, f.answer]),
+  ].join(" ");
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
 /** Words shown in the design panels, so reading time still counts them. */
 function designWordCount(design: DesignDetails | undefined): number {
   if (!design) return 0;
@@ -152,7 +209,9 @@ function readGroup(group: DocGroup): Doc[] {
       const content = body.replace(/^\s*#\s+.*\n+/, "");
       const design = group === "design" ? readDesign(slug, data) : undefined;
       const tech = group === "tech" ? readTech(slug, data) : undefined;
-      const words = content.split(/\s+/).length + designWordCount(design) + techWordCount(tech);
+      const coding = group === "coding" ? readCoding(slug, data) : undefined;
+      const words =
+        content.split(/\s+/).length + designWordCount(design) + techWordCount(tech) + codingWordCount(coding);
 
       const doc = {
         slug,
@@ -163,10 +222,12 @@ function readGroup(group: DocGroup): Doc[] {
         hardPart: data.hardPart ? String(data.hardPart) : undefined,
         role: data.role ? String(data.role) : undefined,
         tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
+        viz: data.viz ? String(data.viz) : undefined,
         readingMinutes: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
         content,
         design,
         tech,
+        coding,
       } satisfies Doc;
 
       return [doc];
@@ -191,8 +252,19 @@ export function getDocsByGroup(group: DocGroup): Doc[] {
   return getAllDocs().filter((doc) => doc.group === group);
 }
 
-export function getDoc(slug: string): Doc | undefined {
-  return getAllDocs().find((doc) => doc.slug === slug);
+/**
+ * The atlas has two tracks with their own routes: system design under /docs
+ * and coding under /coding. Lookups name the track, so a slug that happens to
+ * exist in both can never resolve to the wrong page.
+ */
+const inTrack = (doc: DocMeta, track: Track) => (doc.group === "coding") === (track === "coding");
+
+export function getDocsInTrack(track: Track): Doc[] {
+  return getAllDocs().filter((doc) => inTrack(doc, track));
+}
+
+export function getDoc(slug: string, track: Track = "sysdesign"): Doc | undefined {
+  return getDocsInTrack(track).find((doc) => doc.slug === slug);
 }
 
 /**
@@ -213,7 +285,7 @@ export function getScript(slug: string): InterviewScript | undefined {
 
 /** Strip content so client components receive only what they render. */
 export function toMeta(doc: Doc): DocMeta {
-  const { content: _content, design: _design, tech: _tech, ...meta } = doc;
+  const { content: _content, design: _design, tech: _tech, coding: _coding, ...meta } = doc;
   return meta;
 }
 
@@ -222,8 +294,8 @@ export function getAllMeta(): DocMeta[] {
 }
 
 /** Previous/next within the same group, for sequential reading. */
-export function getSiblings(slug: string): { prev?: DocMeta; next?: DocMeta } {
-  const doc = getDoc(slug);
+export function getSiblings(slug: string, track: Track = "sysdesign"): { prev?: DocMeta; next?: DocMeta } {
+  const doc = getDoc(slug, track);
   if (!doc) return {};
   const siblings = getDocsByGroup(doc.group);
   const index = siblings.findIndex((d) => d.slug === slug);
@@ -278,6 +350,27 @@ export function techToc(tech: TechDetails): { opening: TocEntry[]; closing: TocE
       ...(tech.concepts.length > 0 ? [tocEntry(conceptsTitle)] : []),
     ],
     closing: [],
+  };
+}
+
+/** Headings rendered by the coding panels, which bracket the markdown body. */
+export const CODING_TITLES = {
+  cost: "Cost",
+  reachFor: "Reach for it when",
+  pitfalls: "Where candidates slip",
+  followUps: "Possible follow-up questions",
+} as const;
+
+export function codingToc(coding: CodingDetails): { opening: TocEntry[]; closing: TocEntry[] } {
+  return {
+    opening: [
+      ...(coding.complexity.length > 0 ? [tocEntry(CODING_TITLES.cost)] : []),
+      ...(coding.reachFor.length > 0 ? [tocEntry(CODING_TITLES.reachFor)] : []),
+    ],
+    closing: [
+      ...(coding.pitfalls.length > 0 ? [tocEntry(CODING_TITLES.pitfalls)] : []),
+      ...(coding.followUps.length > 0 ? [tocEntry(CODING_TITLES.followUps)] : []),
+    ],
   };
 }
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CircleCheck } from "lucide-react";
 import type { DocMeta } from "@/lib/types";
 import { useIsCompleted } from "@/store/useProgressStore";
-import { accentVar, cn } from "@/lib/utils";
+import { accentVar, cn, docHref } from "@/lib/utils";
 
 interface SidebarLinkProps {
   doc: DocMeta;
@@ -17,7 +17,7 @@ export function SidebarLink({ doc, active, onNavigate }: SidebarLinkProps) {
 
   return (
     <Link
-      href={`/docs/${doc.slug}`}
+      href={docHref(doc)}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       style={accentVar(doc.group)}

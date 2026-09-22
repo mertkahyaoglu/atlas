@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { buildToc, designToc, getAllDocs, getAllMeta, getDoc, getScript, getSiblings, techToc, toMeta } from "@/lib/content";
+import { buildToc, designToc, getDocsInTrack, getAllMeta, getDoc, getScript, getSiblings, techToc, toMeta } from "@/lib/content";
 import { DocTitlesProvider } from "@/components/docs/diagram/DocTitles";
 import { splitTabs } from "@/lib/tabs";
 import { accentVar, cn } from "@/lib/utils";
@@ -19,7 +19,7 @@ interface PageProps {
 }
 
 export function generateStaticParams() {
-  return getAllDocs().map((doc) => ({ slug: doc.slug }));
+  return getDocsInTrack("sysdesign").map((doc) => ({ slug: doc.slug }));
 }
 
 export function generateMetadata({ params }: PageProps): Metadata {

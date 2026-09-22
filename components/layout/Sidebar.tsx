@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, FlaskConical, PanelLeftClose, X } from "lucide-react";
-import type { DocMeta } from "@/lib/types";
+import type { DocMeta, Track } from "@/lib/types";
 import { useUiStore } from "@/store/useUiStore";
-import { cn } from "@/lib/utils";
+import { cn, trackOf } from "@/lib/utils";
 import { SidebarLink } from "./SidebarLink";
 import { SiteSwitcher } from "./SiteSwitcher";
 
@@ -14,29 +14,40 @@ interface SidebarProps {
   concepts: DocMeta[];
   tech: DocMeta[];
   designs: DocMeta[];
+  coding: DocMeta[];
 }
 
 /** Ids match the `section-collapsed-*` rules in globals.css. */
 const SECTIONS = [
   {
     id: "concepts",
+    track: "sysdesign",
     heading: "Concepts",
     note: "Read in order. Each builds on the last.",
     accent: "var(--concept)",
   },
   {
     id: "designs",
+    track: "sysdesign",
     heading: "Designs",
     note: "Ranked by how often they come up.",
     accent: "var(--design)",
   },
   {
     id: "tech",
+    track: "sysdesign",
     heading: "Key Technologies",
     note: "One page per system. What it is, and when to reach for it.",
     accent: "var(--tech)",
   },
-] as const;
+  {
+    id: "coding",
+    track: "coding",
+    heading: "Concepts",
+    note: "Data structures and algorithms. Read in order — each builds on the last.",
+    accent: "var(--coding)",
+  },
+] as const satisfies readonly { id: string; track: Track; heading: string; note: string; accent: string }[];
 
 type SectionId = (typeof SECTIONS)[number]["id"];
 
@@ -96,7 +107,7 @@ function Section({ id, heading, note, accent, docs, expanded, onToggle, activeSl
   );
 }
 
-export function Sidebar({ concepts, tech, designs }: SidebarProps) {
+export function Sidebar({ concepts, tech, designs, coding }: SidebarProps) {
   const pathname = usePathname();
   const open = useUiStore((s) => s.sidebarOpen);
   const setOpen = useUiStore((s) => s.setSidebarOpen);
@@ -105,9 +116,14 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
   const collapsedSections = useUiStore((s) => s.collapsedSections);
   const toggleSection = useUiStore((s) => s.toggleSection);
   const expandSection = useUiStore((s) => s.expandSection);
-  const activeSlug = pathname.startsWith("/docs/") ? pathname.slice("/docs/".length) : "";
+  const track = trackOf(pathname);
+  const activeSlug = pathname.startsWith("/docs/")
+    ? pathname.slice("/docs/".length)
+    : pathname.startsWith("/coding/")
+      ? pathname.slice("/coding/".length)
+      : "";
 
-  const docsById: Record<SectionId, DocMeta[]> = { concepts, tech, designs };
+  const docsById: Record<SectionId, DocMeta[]> = { concepts, tech, designs, coding };
   const close = () => setOpen(false);
 
   // The store is restored from localStorage before the first client render,
@@ -175,7 +191,7 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
         )}
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-rule px-4">
-          <SiteSwitcher onNavigate={close} />
+          <SiteSwitcher track={track} onNavigate={close} />
           <button
             type="button"
             onClick={close}
@@ -196,7 +212,7 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto py-6">
-          {SECTIONS.map((section) => (
+          {SECTIONS.filter((section) => section.track === track).map((section) => (
             <Section
               key={section.id}
               id={section.id}
@@ -210,23 +226,25 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
               onNavigate={close}
             />
           ))}
-          <nav className="px-3">
-            <Link
-              href="/playground"
-              onClick={close}
-              aria-current={pathname === "/playground" ? "page" : undefined}
-              className={cn(
-                "flex items-center gap-2.5 rounded border px-3 py-2 text-small transition-colors duration-fast",
-                pathname === "/playground"
-                  ? "border-design bg-designSoft text-ink"
-                  : "border-rule text-inkMuted hover:border-ruleStrong hover:text-ink",
-              )}
-            >
-              <FlaskConical className="h-4 w-4 shrink-0 text-design" aria-hidden />
-              <span className="leading-snug">Playground</span>
-              <span className="ml-auto font-mono text-micro text-inkFaint">beta</span>
-            </Link>
-          </nav>
+          {track === "sysdesign" && (
+            <nav className="px-3">
+              <Link
+                href="/playground"
+                onClick={close}
+                aria-current={pathname === "/playground" ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-2.5 rounded border px-3 py-2 text-small transition-colors duration-fast",
+                  pathname === "/playground"
+                    ? "border-design bg-designSoft text-ink"
+                    : "border-rule text-inkMuted hover:border-ruleStrong hover:text-ink",
+                )}
+              >
+                <FlaskConical className="h-4 w-4 shrink-0 text-design" aria-hidden />
+                <span className="leading-snug">Playground</span>
+                <span className="ml-auto font-mono text-micro text-inkFaint">beta</span>
+              </Link>
+            </nav>
+          )}
         </div>
       </aside>
     </>

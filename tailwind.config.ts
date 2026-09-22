@@ -25,9 +25,11 @@ const config: Config = {
         concept: "var(--concept)",
         design: "var(--design)",
         tech: "var(--tech)",
+        coding: "var(--coding)",
         conceptSoft: "var(--concept-soft)",
         designSoft: "var(--design-soft)",
         techSoft: "var(--tech-soft)",
+        codingSoft: "var(--coding-soft)",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],

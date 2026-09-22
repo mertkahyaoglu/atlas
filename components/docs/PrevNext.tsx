@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { DocMeta } from "@/lib/types";
-import { accentVar } from "@/lib/utils";
+import { accentVar, docHref } from "@/lib/utils";
 
 interface PrevNextProps {
   prev?: DocMeta;
@@ -12,7 +12,7 @@ function Card({ doc, direction }: { doc: DocMeta; direction: "prev" | "next" }) 
   const isNext = direction === "next";
   return (
     <Link
-      href={`/docs/${doc.slug}`}
+      href={docHref(doc)}
       style={accentVar(doc.group)}
       className={`group flex flex-1 flex-col gap-1 rounded border border-rule p-4 transition-colors duration-fast hover:border-[color:var(--accent)] ${
         isNext ? "items-end text-right" : "items-start"

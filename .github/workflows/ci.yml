@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   check:
-    name: Lint, types, build
+    name: Lint, types, visualisations, build
     runs-on: ubuntu-latest
 
     # `shell: bash` is bash -eo pipefail, so a failing build is not masked by
@@ -36,6 +36,12 @@ jobs:
 
       - name: Types
         run: npx tsc --noEmit
+
+      # Catches the failures that typing cannot in the coding track's
+      # visualisations: a frame highlighting a line past the end of its listing,
+      # a drawing wider than its canvas, two boxes on top of each other.
+      - name: Visualisations
+        run: npm run check:viz
 
       - name: Build
         run: npm run build 2>&1 | tee build.log
