@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeScript } from "@/components/layout/ThemeScript";
 import "./globals.css";
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <AppShell>{children}</AppShell>
+        <Analytics />
       </body>
     </html>
   );
