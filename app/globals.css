@@ -12,6 +12,11 @@
 --------------------------------------------------------------------------- */
 
 :root {
+  /* Tells the browser which palette its own chrome should use: scrollbars, the
+     overscroll gutter, select popups and input carets. Without it they render
+     light over a dark page. */
+  color-scheme: light;
+
   --font-sans: "IBM Plex Sans";
   --font-mono: "IBM Plex Mono";
 
@@ -62,6 +67,8 @@
 }
 
 .dark {
+  color-scheme: dark;
+
   --canvas: #101720;
   --surface: #161e29;
   --raised: #1d2734;
