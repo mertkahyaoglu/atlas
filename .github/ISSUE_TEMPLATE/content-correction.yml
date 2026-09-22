@@ -1,0 +1,31 @@
+name: Content correction
+description: Something in a document is wrong — a number, a claim, a diagram.
+labels: ["content"]
+body:
+  - type: input
+    id: document
+    attributes:
+      label: Which document
+      description: The page title, or its file under `content/`.
+      placeholder: content/designs/04-rate-limiter.md
+    validations:
+      required: true
+
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What's wrong
+      description: Quote the passage, and say what it should be instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: What backs that up
+      description: >
+        Documentation, a benchmark, a post-mortem, or production experience.
+        "I've run this at scale and it behaves differently" is a good answer;
+        say so rather than leaving it blank.
+    validations:
+      required: false

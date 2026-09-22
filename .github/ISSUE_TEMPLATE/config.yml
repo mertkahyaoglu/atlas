@@ -1,0 +1,10 @@
+# The three templates cover corrections, bugs and new-document proposals, which
+# is everything the project wants in the issue tracker.
+blank_issues_enabled: false
+# If Discussions is ever turned on for this repository, questions about the
+# reasoning in a document belong there rather than in an issue:
+#
+# contact_links:
+#   - name: Question about a design
+#     url: https://github.com/mertkahyaoglu/atlas/discussions
+#     about: Ask about the reasoning in a document, rather than reporting a problem with it.

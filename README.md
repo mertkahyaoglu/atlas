@@ -1,8 +1,20 @@
 # System Design Atlas
 
+**[Read it at atlas-sysdes.vercel.app →](https://atlas-sysdes.vercel.app)**
+
 A reading app for forty-one system design documents: ten concept modules built from
 the ground up, fifteen pages on the technologies those designs name, and sixteen
 worked designs with rendered architecture diagrams.
+
+Every design opens with the hard part — what the interviewer is actually testing —
+and closes with trade-offs and follow-up questions. Architecture diagrams are
+interactive: click a node to see its purpose, its trade-off and what it connects to.
+Some designs carry a worked interview script, the same design spoken aloud as a
+45-minute round.
+
+Contributions are welcome, particularly corrections. See
+[CONTRIBUTING.md](CONTRIBUTING.md). If the atlas is useful to you, you can
+[sponsor it](https://github.com/sponsors/mertkahyaoglu).
 
 ## Running it
 
@@ -217,3 +229,16 @@ Dark is the default because this is long-form night reading. The theme is stored
   accent variable in `globals.css` and `tailwind.config.ts`, a label in `GroupBadge`,
   and a `Section` in the sidebar and on the home page. Everything else — routes,
   search, filters, prev/next, progress — is generic over the group.
+
+## License
+
+Two licenses, because this repository is two things.
+
+- **The documents** — everything under `content/`, which is most of the work here —
+  are [CC BY-SA 4.0](LICENSE-CONTENT). Share them, translate them, build on them;
+  credit "System Design Atlas by Mert Kahyaoğlu" with a link back, and license what
+  you build from them the same way.
+- **The application code** — everything else — is [MIT](LICENSE).
+
+Contributions are taken under the [DCO](CONTRIBUTING.md#sign-your-commits-dco), so
+commits need a `Signed-off-by` line. You keep the copyright in what you write.
