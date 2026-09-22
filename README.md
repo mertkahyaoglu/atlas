@@ -232,6 +232,11 @@ Dark is the default because this is long-form night reading. The theme is stored
 
 ## See also
 
+- **[Coding Atlas](https://github.com/mertkahyaoglu/atlas-coding)** — the sibling
+  project, built on the same shell and the same design tokens, for the other half of
+  the interview loop: data structures and algorithms, each concept explained with a
+  visualisation you step through while the code runs beside it. Read it at
+  [atlas-coding-ten.vercel.app](https://atlas-coding-ten.vercel.app).
 - [awesome-system-design](https://github.com/madd86/awesome-system-design) — a curated list of system design
   resources: articles, books, talks and the tools the designs here name.
 

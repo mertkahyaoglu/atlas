@@ -8,6 +8,7 @@ import type { DocMeta } from "@/lib/types";
 import { useUiStore } from "@/store/useUiStore";
 import { cn } from "@/lib/utils";
 import { SidebarLink } from "./SidebarLink";
+import { SiteSwitcher } from "./SiteSwitcher";
 
 interface SidebarProps {
   concepts: DocMeta[];
@@ -174,14 +175,7 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
         )}
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-rule px-4">
-          <Link
-            href="/"
-            onClick={close}
-            className="font-mono text-small font-medium tracking-tight text-ink"
-          >
-            atlas<span className="text-inkFaint">/</span>
-            <span className="text-[color:var(--concept)]">sysdesign</span>
-          </Link>
+          <SiteSwitcher onNavigate={close} />
           <button
             type="button"
             onClick={close}
