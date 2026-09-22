@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch makes an in-flight run redundant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, types, build
+    runs-on: ubuntu-latest
+
+    # `shell: bash` is bash -eo pipefail, so a failing build is not masked by
+    # the `tee` it is piped into.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build 2>&1 | tee build.log
+
+      # `lib/content.ts` warns rather than throws when a document is missing
+      # frontmatter, so the page renders with an empty panel instead of failing
+      # the build. That is the right behaviour locally and the wrong one for a
+      # pull request, so the warnings are an error here.
+      - name: No content warnings
+        run: |
+          if grep -q '^\[content\]' build.log; then
+            echo "::error::A document is missing frontmatter. See the warnings below."
+            grep '^\[content\]' build.log
+            exit 1
+          fi
+          echo "No content warnings."

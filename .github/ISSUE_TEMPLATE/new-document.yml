@@ -1,0 +1,48 @@
+name: Propose a new document
+description: A concept module, a technology page or a design that isn't covered yet.
+labels: ["content", "proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Agreeing the scope before the writing starts saves everyone a long
+        review. Please open this before sending a pull request with a new
+        document in it.
+
+  - type: dropdown
+    id: group
+    attributes:
+      label: Which group
+      options:
+        - Concept module
+        - Technology page
+        - Design
+    validations:
+      required: true
+
+  - type: input
+    id: title
+    attributes:
+      label: Working title
+    validations:
+      required: true
+
+  - type: textarea
+    id: hard-part
+    attributes:
+      label: What's the hard part
+      description: >
+        For a design: what is the interviewer actually testing, beyond fan-out
+        and sharding? For a concept or technology page: what does a reader
+        usually get wrong about it? A topic with no hard part is usually a
+        section of an existing page rather than a new one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: overlap
+    attributes:
+      label: Overlap with what's already here
+      description: Which existing documents cover neighbouring ground, and how this differs.
+    validations:
+      required: true

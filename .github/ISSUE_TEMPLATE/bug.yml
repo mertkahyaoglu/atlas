@@ -1,0 +1,27 @@
+name: Bug in the app
+description: Something in the reader is broken — rendering, diagrams, navigation.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The URL or page, and the browser you saw it in.
+      placeholder: /docs/04-rate-limiter — Firefox 130, macOS
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshot or console output
+    validations:
+      required: false

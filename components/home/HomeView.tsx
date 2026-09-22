@@ -78,7 +78,7 @@ export function HomeView({ concepts, tech, designs }: HomeViewProps) {
 
       <Section
         title="Concepts"
-        note="Ten modules, in order. Foundations first, then the patterns everything else is built from."
+        note="Read in order. Foundations first, then the patterns everything else is built from."
         count={visibleConcepts.length}
         total={concepts.length}
         accent="var(--concept)"
@@ -106,7 +106,7 @@ export function HomeView({ concepts, tech, designs }: HomeViewProps) {
 
       <Section
         title="Designs"
-        note="Fifteen worked problems, ranked by how often they come up. The first five cover most of what gets asked."
+        note="Worked problems, ranked by how often they come up. The first five cover most of what gets asked."
         count={visibleDesigns.length}
         total={designs.length}
         accent="var(--design)"
