@@ -12,6 +12,12 @@ interactive: click a node to see its purpose, its trade-off and what it connects
 Some designs carry a worked interview script, the same design spoken aloud as a
 45-minute round.
 
+A second track covers the other half of the interview loop. Under
+[/coding](https://atlas-sysdes.vercel.app/coding), thirteen data structures and
+algorithms — hash tables through dynamic programming — each open with a
+visualisation you step through while the implementation runs line by line beside
+it. The logo in the sidebar switches between the two tracks.
+
 Contributions are welcome, particularly corrections. See
 [CONTRIBUTING.md](CONTRIBUTING.md). If the atlas is useful to you, you can
 [sponsor it](https://github.com/sponsors/mertkahyaoglu).
@@ -40,17 +46,21 @@ app/
   layout.tsx              root shell, theme bootstrap
   page.tsx                home index
   docs/[slug]/page.tsx    document page, statically generated per file
+  coding/page.tsx         coding track index
+  coding/[slug]/page.tsx  coding concept page, with its visualisation
 components/
   layout/                 sidebar, top bar, theme toggle
   home/                   hero, filter bar, cards
   docs/                   markdown renderer, diagrams, TOC, prev/next
   docs/diagram/           React Flow canvas, node types, node detail dialog
+  viz/                    step-through player, canvas and code pane (coding track)
   ui/                     tag, search input, badges, empty state
 lib/
   content.ts              filesystem loader, TOC builder, sibling lookup
   tags.ts                 tag registry (single source of truth)
   search.ts               filter and sort logic, pure and testable
   types.ts                shared types
+  viz/                    one visualisation per coding concept, plus shared layout
 store/
   useUiStore.ts           theme (persisted) and sidebar
   useFilterStore.ts       query, tags, sort
@@ -58,6 +68,9 @@ content/
   concepts/*.md           concept modules
   tech/*.md               technology pages
   designs/*.md            designs
+  coding/*.md             coding concepts
+scripts/
+  check-viz.mjs           validates every visualisation, run in CI
 ```
 
 ## Adding a document
@@ -202,6 +215,41 @@ are markdown, so tables and lists work.
 Only `@you`, `@interviewer` and `@note` are speakers; text before the first marker (a
 title, an intro) is ignored, so the file still reads top to bottom in a plain markdown
 viewer.
+
+## The coding track
+
+Coding concepts live in `content/coding/` and render under `/coding`, with their own
+sidebar and a blue accent. Their frontmatter carries the panels around the body —
+a cost table, the signals that call for the structure, pitfalls and follow-ups:
+
+```yaml
+---
+title: Heaps
+order: 8
+summary: One line, shown on the card and under the title.
+hardPart: What an interviewer is actually testing.
+viz: heap                  # names a visualisation in lib/viz/registry.ts
+complexity:
+  - op: Push / pop
+    time: O(log n)
+    note: Why it costs that.
+reachFor: [...]
+pitfalls: [...]
+followUps:
+  - question: ...
+    answer: ...
+---
+```
+
+A visualisation is data, not animation code. `lib/viz/types.ts` defines a
+**frame** as a complete snapshot of the drawing; node ids stay stable across frames,
+so stepping forward rewrites positions and a CSS transition turns each jump into a
+move. Each file builds its frames from one `scene()` function, so the picture is a
+pure function of the algorithm's state.
+
+`npm run check:viz` validates every visualisation — duplicate node ids, edges to
+missing nodes, highlighted code lines outside the listing, content overflowing the
+canvas, boxes drawn on top of each other. CI runs it on every pull request.
 
 ## Design notes
 

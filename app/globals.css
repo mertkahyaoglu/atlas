@@ -34,6 +34,8 @@
   --concept-soft: rgba(20, 125, 112, 0.1);
   --design-soft: rgba(154, 100, 16, 0.1);
   --tech-soft: rgba(91, 70, 184, 0.1);
+  --coding: #1f6fb2;
+  --coding-soft: rgba(31, 111, 178, 0.1);
 
   /* Status tones for HTTP method and status badges. */
   --tone-green: #1a7f4e;
@@ -83,6 +85,8 @@
   --concept-soft: rgba(79, 184, 168, 0.12);
   --design-soft: rgba(232, 163, 61, 0.12);
   --tech-soft: rgba(173, 148, 247, 0.12);
+  --coding: #6cb2ee;
+  --coding-soft: rgba(108, 178, 238, 0.12);
 
   --tone-green: #5cc98f;
   --tone-green-soft: rgba(92, 201, 143, 0.1);
@@ -222,12 +226,20 @@
   }
 
   /* Dash markers instead of bullets: quieter, and reads as a schematic list. */
-  .doc ul > li {
+  :where(.doc) :where(ul) > li {
     @apply relative pl-5;
   }
-  .doc ul > li::before {
+  :where(.doc) :where(ul) > li::before {
     content: "";
     @apply absolute left-0 top-[0.7em] h-px w-2.5 bg-ruleStrong;
+  }
+
+  /* Panel lists are cards, not prose: no dash markers, no reading measure. */
+  .doc ul.plain {
+    @apply max-w-none space-y-0;
+  }
+  .doc ul.plain > li::before {
+    content: none;
   }
 
   .doc li > ul,
@@ -300,7 +312,8 @@
    Add a rule here when a section is added to the Sidebar. */
 html.section-collapsed-concepts [data-section="concepts"] [data-section-body],
 html.section-collapsed-tech [data-section="tech"] [data-section-body],
-html.section-collapsed-designs [data-section="designs"] [data-section-body] {
+html.section-collapsed-designs [data-section="designs"] [data-section-body],
+html.section-collapsed-coding [data-section="coding"] [data-section-body] {
   display: none;
 }
 
@@ -1070,6 +1083,228 @@ html.section-collapsed-designs [data-section="designs"] [data-section-body] {
 @media (prefers-reduced-motion: reduce) {
   .pg-edge.is-live,
   .pg-node.is-overloaded {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Algorithm visualisations, drawn with React Flow. A frame is a full snapshot
+   of the structure; a node keeps its id across frames, so React Flow rewrites
+   its transform and the transition below turns the jump into a move. Sizes
+   here are the ones lib/viz/types.ts lays out with.
+--------------------------------------------------------------------------- */
+
+.viz-canvas.react-flow {
+  --xy-background-color: var(--flow-canvas);
+  background: var(--flow-canvas);
+}
+
+.viz-canvas .react-flow__attribution {
+  display: none;
+}
+
+.viz-canvas .react-flow__node {
+  transition:
+    transform 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 200ms ease;
+  animation: viz-node-in 240ms ease-out;
+}
+
+@keyframes viz-node-in {
+  from {
+    opacity: 0;
+    transform-origin: center;
+  }
+}
+
+.viz-handle.react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.viz-node {
+  --tone: var(--ink-faint);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--rule));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--tone) 8%, var(--flow-node));
+  color: var(--ink);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  box-shadow: var(--flow-shadow);
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease,
+    box-shadow 200ms ease,
+    opacity 200ms ease;
+}
+
+/* An empty array slot: a dashed outline, no fill, so occupancy reads at a glance. */
+.viz-node--slot {
+  border-style: dashed;
+  border-color: var(--rule-strong);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-faint);
+  justify-content: center;
+}
+.viz-node--slot.is-filled {
+  border-style: solid;
+}
+
+/* An array cell: the value sits in the middle, the way an array is drawn. */
+.viz-node--cell {
+  justify-content: center;
+}
+
+/* A key travelling through the structure. */
+.viz-node--chip {
+  justify-content: center;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+/* The hash function, a comparison, any step that is an operation not a value. */
+.viz-node--op {
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  justify-content: center;
+  border-radius: 7px;
+  border-style: solid;
+}
+
+/* Free-standing text: array captions, index rulers, annotations. */
+.viz-node--note {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: pre;
+}
+
+.viz-node.is-active {
+  border-color: var(--tone);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--tone) 24%, transparent),
+    var(--flow-shadow);
+}
+.viz-node.is-dimmed {
+  opacity: 0.35;
+}
+.viz-node.is-pulsing {
+  animation: viz-pulse 1.1s ease-in-out infinite;
+}
+@keyframes viz-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--tone) 40%, transparent),
+      var(--flow-shadow);
+  }
+  55% {
+    box-shadow:
+      0 0 0 7px color-mix(in srgb, var(--tone) 0%, transparent),
+      var(--flow-shadow);
+  }
+}
+
+.viz-node__index {
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 2px;
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-node__title {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 17px;
+  white-space: pre;
+}
+.viz-node--op .viz-node__title {
+  color: var(--tone);
+}
+.viz-node__detail {
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  line-height: 14px;
+  white-space: pre;
+}
+.viz-node--slot .viz-node__detail,
+.viz-node--chip .viz-node__detail {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--tone);
+}
+
+/* A cursor parked beside the cell it is checking (i, j, head, …). */
+.viz-node--marker {
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tone);
+  font-size: 11px;
+  line-height: 14px;
+  justify-content: center;
+}
+.viz-node--marker .viz-node__title {
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.viz-edge.react-flow__edge-path {
+  stroke: var(--flow-edge);
+  stroke-width: 1.25;
+  transition: stroke 200ms ease;
+}
+.viz-edge.is-active {
+  stroke: var(--tone-blue);
+  stroke-width: 1.75;
+  stroke-dasharray: 5 4;
+  animation: viz-dash 620ms linear infinite;
+}
+.viz-edge.is-dimmed {
+  opacity: 0.25;
+}
+@keyframes viz-dash {
+  to {
+    stroke-dashoffset: -9;
+  }
+}
+.viz-canvas .react-flow__edge-textbg {
+  fill: var(--flow-canvas);
+}
+.viz-canvas .react-flow__edge-text {
+  fill: var(--ink-muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viz-canvas .react-flow__node,
+  .viz-node.is-pulsing,
+  .viz-edge.is-active {
     animation: none;
   }
 }

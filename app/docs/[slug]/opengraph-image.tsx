@@ -1,5 +1,5 @@
 import { docCard, OG_CONTENT_TYPE, OG_SIZE, siteCard } from "@/lib/og";
-import { getAllDocs, getDoc } from "@/lib/content";
+import { getDocsInTrack, getDoc } from "@/lib/content";
 
 export const alt = "System Design Atlas";
 export const size = OG_SIZE;
@@ -7,7 +7,7 @@ export const contentType = OG_CONTENT_TYPE;
 
 /** One card per document, generated at build time alongside the pages. */
 export function generateStaticParams() {
-  return getAllDocs().map((doc) => ({ slug: doc.slug }));
+  return getDocsInTrack("sysdesign").map((doc) => ({ slug: doc.slug }));
 }
 
 export default function Image({ params }: { params: { slug: string } }) {

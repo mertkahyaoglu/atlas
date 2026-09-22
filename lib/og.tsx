@@ -24,18 +24,21 @@ const COLOR = {
   concept: "#4fb8a8",
   design: "#e8a33d",
   tech: "#ad94f7",
+  coding: "#6cb2ee",
 } as const;
 
 const ACCENT: Record<DocGroup, string> = {
   concept: COLOR.concept,
   design: COLOR.design,
   tech: COLOR.tech,
+  coding: COLOR.coding,
 };
 
 const GROUP_LABEL: Record<DocGroup, string> = {
   concept: "Concept module",
   design: "Design",
   tech: "Key technology",
+  coding: "Coding",
 };
 
 /**

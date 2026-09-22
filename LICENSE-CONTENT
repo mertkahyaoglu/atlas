@@ -1,7 +1,9 @@
 The written documents in this repository — everything under `content/`,
-including the concept modules, the technology pages, the designs and the
-interview scripts — are copyright (c) 2026 Mert Kahyaoğlu and are licensed
-under the Creative Commons Attribution-ShareAlike 4.0 International License.
+including the concept modules, the technology pages, the designs, the
+interview scripts and the coding concepts, plus the explanatory captions
+carried by the visualisations in `lib/viz/` — are copyright (c) 2026 Mert
+Kahyaoğlu and are licensed under the Creative Commons Attribution-ShareAlike
+4.0 International License.
 
 The application code is licensed separately, under the MIT License. See
 LICENSE.

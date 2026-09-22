@@ -1,4 +1,7 @@
-export type DocGroup = "concept" | "design" | "tech";
+export type DocGroup = "concept" | "design" | "tech" | "coding";
+
+/** The two halves of the atlas, each with its own route: /docs and /coding. */
+export type Track = "sysdesign" | "coding";
 
 /** Facets used by the filter bar. Kept as a union so new facets fail loudly. */
 export type TagKind = "concept" | "tech" | "pattern";
@@ -28,6 +31,8 @@ export interface DocMeta {
   /** Technology pages only: the two-word role, e.g. "Event log". */
   role?: string;
   tags: string[];
+  /** Coding docs only: id of the animated visualisation above the body. */
+  viz?: string;
   readingMinutes: number;
 }
 
@@ -64,6 +69,24 @@ export interface DesignDetails {
 export interface TechFact {
   label: string;
   value: string;
+}
+
+/** One row of a coding doc's cost table. */
+export interface ComplexityRow {
+  op: string;
+  time: string;
+  space?: string;
+  /** Why it costs that — the part candidates get asked to justify. */
+  note?: string;
+}
+
+/** The structured sections of a coding doc, read from frontmatter. */
+export interface CodingDetails {
+  complexity: ComplexityRow[];
+  /** Signals in a problem statement that point at this structure. */
+  reachFor: string[];
+  pitfalls: string[];
+  followUps: FollowUp[];
 }
 
 /** The structured sections of a technology doc, read from frontmatter. */
@@ -108,6 +131,8 @@ export interface Doc extends DocMeta {
   design?: DesignDetails;
   /** Technology docs only, for the same reason. */
   tech?: TechDetails;
+  /** Coding docs only, for the same reason. */
+  coding?: CodingDetails;
 }
 
 export interface TocEntry {

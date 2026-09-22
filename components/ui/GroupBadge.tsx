@@ -5,6 +5,7 @@ const LABEL: Record<DocGroup, string> = {
   concept: "Concept module",
   tech: "Key technology",
   design: "Design",
+  coding: "Coding",
 };
 
 /** Small coloured marker that tells the reader which half of the atlas they're in. */
