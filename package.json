@@ -2,7 +2,7 @@
   "name": "sysdesign-atlas",
   "version": "1.0.0",
   "private": true,
-  "description": "A reading app for forty-one system design documents: concept modules, technology pages and worked designs with interactive architecture diagrams.",
+  "description": "A reading app for system design interviews: concept modules, technology pages and worked designs with interactive architecture diagrams.",
   "homepage": "https://atlas-sysdes.vercel.app",
   "repository": {
     "type": "git",

@@ -148,9 +148,9 @@ export function Hero() {
       </h1>
 
       <p className="mt-5 max-w-reading text-lead text-inkMuted">
-        Twenty-five worked documents on distributed systems: ten concept modules built
-        from the ground up, and fifteen full designs with architecture diagrams,
-        trade-offs and the follow-up questions that actually get asked.
+        Worked documents on distributed systems: concept modules built from the ground
+        up, pages on the technologies they name, and full designs with architecture
+        diagrams, trade-offs and the follow-up questions that actually get asked.
       </p>
 
       <div className="mt-10 grid gap-4 md:grid-cols-2">

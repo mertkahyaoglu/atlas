@@ -2,9 +2,9 @@
 
 **[Read it at atlas-sysdes.vercel.app →](https://atlas-sysdes.vercel.app)**
 
-A reading app for forty-one system design documents: ten concept modules built from
-the ground up, fifteen pages on the technologies those designs name, and sixteen
-worked designs with rendered architecture diagrams.
+A reading app for system design interviews: concept modules built from the ground
+up, pages on the technologies those designs name, and worked designs with rendered
+architecture diagrams.
 
 Every design opens with the hard part — what the interviewer is actually testing —
 and closes with trade-offs and follow-up questions. Architecture diagrams are
@@ -55,9 +55,9 @@ store/
   useUiStore.ts           theme (persisted) and sidebar
   useFilterStore.ts       query, tags, sort
 content/
-  concepts/*.md           ten modules
-  tech/*.md               fifteen technology pages
-  designs/*.md            sixteen designs
+  concepts/*.md           concept modules
+  tech/*.md               technology pages
+  designs/*.md            designs
 ```
 
 ## Adding a document
