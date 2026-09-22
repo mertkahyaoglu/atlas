@@ -24,16 +24,16 @@ const SECTIONS = [
     accent: "var(--concept)",
   },
   {
-    id: "tech",
-    heading: "Key Technologies",
-    note: "One page per system. What it is, and when to reach for it.",
-    accent: "var(--tech)",
-  },
-  {
     id: "designs",
     heading: "Designs",
     note: "Ranked by how often they come up.",
     accent: "var(--design)",
+  },
+  {
+    id: "tech",
+    heading: "Key Technologies",
+    note: "One page per system. What it is, and when to reach for it.",
+    accent: "var(--tech)",
   },
 ] as const;
 
@@ -202,6 +202,20 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto py-6">
+          {SECTIONS.map((section) => (
+            <Section
+              key={section.id}
+              id={section.id}
+              heading={section.heading}
+              note={section.note}
+              accent={section.accent}
+              docs={docsById[section.id]}
+              expanded={!hydrated || !collapsedSections.includes(section.id)}
+              onToggle={() => toggleSection(section.id)}
+              activeSlug={activeSlug}
+              onNavigate={close}
+            />
+          ))}
           <nav className="px-3">
             <Link
               href="/playground"
@@ -219,20 +233,6 @@ export function Sidebar({ concepts, tech, designs }: SidebarProps) {
               <span className="ml-auto font-mono text-micro text-inkFaint">beta</span>
             </Link>
           </nav>
-          {SECTIONS.map((section) => (
-            <Section
-              key={section.id}
-              id={section.id}
-              heading={section.heading}
-              note={section.note}
-              accent={section.accent}
-              docs={docsById[section.id]}
-              expanded={!hydrated || !collapsedSections.includes(section.id)}
-              onToggle={() => toggleSection(section.id)}
-              activeSlug={activeSlug}
-              onNavigate={close}
-            />
-          ))}
         </div>
       </aside>
     </>

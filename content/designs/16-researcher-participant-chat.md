@@ -1,6 +1,7 @@
 ---
 group: "design"
 order: 16
+hidden: true
 title: "Researcher–Participant Chat"
 summary: "Two strangers, one of them anonymous, allowed to talk only while a study says so, at a scale where the hard part is policy rather than throughput."
 hardPart: "Scale is easy. The hard part is authorization the chat service doesn't own: study lifecycle, a participant who must stay anonymous, and staff who must see everything without becoming the leak."

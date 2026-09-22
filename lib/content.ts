@@ -141,17 +141,20 @@ function readGroup(group: DocGroup): Doc[] {
   return fs
     .readdirSync(dir)
     .filter((file) => file.endsWith(".md"))
-    .map((file) => {
+    .flatMap((file) => {
       const raw = fs.readFileSync(path.join(dir, file), "utf8");
       const { data, content: body } = matter(raw);
       const slug = file.replace(/\.md$/, "");
+      // `hidden: true` parks a finished doc: it stays on disk but leaves the
+      // sidebar, the home page, search and the routes until the flag is removed.
+      if (data.hidden === true) return [];
       // DocHeader renders the title, so drop the body's leading H1.
       const content = body.replace(/^\s*#\s+.*\n+/, "");
       const design = group === "design" ? readDesign(slug, data) : undefined;
       const tech = group === "tech" ? readTech(slug, data) : undefined;
       const words = content.split(/\s+/).length + designWordCount(design) + techWordCount(tech);
 
-      return {
+      const doc = {
         slug,
         group,
         order: Number(data.order ?? 0),
@@ -165,6 +168,8 @@ function readGroup(group: DocGroup): Doc[] {
         design,
         tech,
       } satisfies Doc;
+
+      return [doc];
     })
     .sort((a, b) => a.order - b.order);
 }
