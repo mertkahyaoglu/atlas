@@ -22,7 +22,7 @@ const SITES = [
     label: "coding",
     name: "Coding Atlas",
     blurb: "Data structures and algorithms, drawn step by step",
-    href: "https://atlas-coding.vercel.app",
+    href: "https://atlas-coding-ten.vercel.app",
   },
 ] as const;
 
