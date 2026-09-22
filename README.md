@@ -230,6 +230,11 @@ Dark is the default because this is long-form night reading. The theme is stored
   and a `Section` in the sidebar and on the home page. Everything else — routes,
   search, filters, prev/next, progress — is generic over the group.
 
+## See also
+
+- [awesome-system-design](https://github.com/madd86/awesome-system-design) — a curated list of system design
+  resources: articles, books, talks and the tools the designs here name.
+
 ## License
 
 Two licenses, because this repository is two things.
