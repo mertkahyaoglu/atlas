@@ -43,6 +43,11 @@ jobs:
       - name: Visualisations
         run: npm run check:viz
 
+      # Every abbreviation in the prose gets a hover tooltip spelling it out,
+      # which needs a glossary entry. A new one without an entry fails here.
+      - name: Abbreviations
+        run: npm run check:abbr
+
       - name: Build
         run: npm run build 2>&1 | tee build.log
 

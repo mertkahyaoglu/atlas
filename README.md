@@ -58,6 +58,7 @@ components/
 lib/
   content.ts              filesystem loader, TOC builder, sibling lookup
   tags.ts                 tag registry (single source of truth)
+  glossary.ts             abbreviations and their expansions, shown on hover
   search.ts               filter and sort logic, pure and testable
   types.ts                shared types
   viz/                    one visualisation per coding concept, plus shared layout
@@ -71,6 +72,7 @@ content/
   coding/*.md             coding concepts
 scripts/
   check-viz.mjs           validates every visualisation, run in CI
+  check-abbr.mjs          fails on an abbreviation missing from the glossary, run in CI
 ```
 
 ## Adding a document
@@ -100,6 +102,11 @@ tags: ["caching", "redis"]
    `concepts`, `requirements`, `scale`, `tradeoffs` and `followUps`. `lib/content.ts`
    logs a warning for any that are missing. An existing design such as
    `content/designs/02-chat-slack.md` is the easiest template to copy.
+6. Every abbreviation in the prose needs an entry in `lib/glossary.ts`. The first use
+   of each one per section is tinted and spells itself out on hover, focus or tap, so
+   write "APNs" and let the tooltip say "Apple Push Notification service".
+   `npm run check:abbr` lists any that are missing; CI runs it too. Terms every reader
+   knows (API, URL, JSON) and product names go in `NOT_ABBREVIATIONS` instead.
 
 That's it — the sidebar, index cards, filters, prev/next links and static routes all
 derive from the file. Nothing else needs editing.

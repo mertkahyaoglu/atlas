@@ -10,6 +10,7 @@ import { Mermaid } from "./Mermaid";
 import { ErdDiagram } from "./diagram/ErdDiagram";
 import { FlowDiagram } from "./diagram/FlowDiagram";
 import { isFlowchart } from "@/lib/diagram/parse";
+import { rehypeAbbr } from "@/lib/rehype-abbr";
 import { ApiBlock } from "./ApiBlock";
 
 /** Pull the plain-text content out of a fenced block's React children. */
@@ -74,7 +75,7 @@ export function Markdown({ content }: { content: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeRaw, rehypeSlug]}
+      rehypePlugins={[rehypeRaw, rehypeSlug, rehypeAbbr]}
       components={components}
     >
       {content}

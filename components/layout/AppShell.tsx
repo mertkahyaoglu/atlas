@@ -1,4 +1,5 @@
 import { getDocsByGroup, toMeta } from "@/lib/content";
+import { AbbrTooltip } from "@/components/docs/AbbrTooltip";
 import { Sidebar } from "./Sidebar";
 
 /**
@@ -18,6 +19,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div data-content className="transition-[padding] duration-200 lg:pl-sidebar">
         {children}
       </div>
+      <AbbrTooltip />
     </div>
   );
 }

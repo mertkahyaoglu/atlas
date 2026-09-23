@@ -295,6 +295,47 @@
   }
 }
 
+/* Abbreviations spelled out on hover: marked by lib/rehype-abbr.ts, explained
+   by AbbrTooltip. A tint and the dotted underline browsers already use for
+   <abbr>, so it never reads as a link, which is full accent and solid. */
+.abbr {
+  color: color-mix(in srgb, var(--accent, var(--ink-muted)) 55%, var(--ink));
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--accent, var(--ink-muted)) 70%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.abbr[aria-describedby] {
+  color: var(--accent, var(--ink));
+}
+
+.abbr-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  max-width: min(18rem, calc(100vw - 16px));
+  padding: 6px 10px 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--ink);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+.abbr-tooltip__term {
+  display: block;
+  margin-bottom: 1px;
+  color: var(--accent, var(--ink-muted));
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
 /* Desktop sidebar collapse. Driven by a class on <html> (set before paint by
    ThemeScript, then kept in sync by the Sidebar) so the server-rendered markup
    never has to know the preference. */
