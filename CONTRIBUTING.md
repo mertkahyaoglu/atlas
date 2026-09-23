@@ -37,12 +37,18 @@ is meant to be finishable.
 npm install
 npm run lint
 npx tsc --noEmit
+npm run check:viz
+npm run check:abbr
 npm run build
 ```
 
-All four must pass; CI runs the same set. The build must also be free of
+All of these must pass; CI runs the same set. The build must also be free of
 `[content]` warnings — `lib/content.ts` warns instead of failing when a document
 is missing frontmatter, and CI treats those warnings as errors.
+
+`check:abbr` fails when the prose uses an abbreviation that `lib/glossary.ts`
+doesn't spell out. Add it there rather than expanding it inline, and readers get
+the expansion on hover.
 
 Adding a document, the frontmatter it needs, and how the diagrams work are all
 covered in the [README](README.md). Copy an existing file in the same group as

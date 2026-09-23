@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { ArrowRight, Lightbulb, X } from "lucide-react";
 import type { InterviewScript, ScriptPhase, ScriptTurn } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { accentVar, cn } from "@/lib/utils";
 import { Markdown } from "../Markdown";
 
 const SPEAKER: Record<ScriptTurn["speaker"], string> = {
@@ -115,6 +115,8 @@ export function ScriptDialog({
       }}
       onClick={(event) => event.target === event.currentTarget && onClose()}
       className="flow-dialog script-dialog"
+      // The portal leaves the page's accent behind; scripts only exist for designs.
+      style={accentVar("design")}
     >
       <div className="flex max-h-[inherit] flex-col">
         <header className="flex shrink-0 items-start gap-3 border-b border-rule px-6 pb-4 pt-5">
