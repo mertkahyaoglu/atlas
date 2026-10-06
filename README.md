@@ -18,6 +18,9 @@ algorithms — hash tables through dynamic programming — each open with a
 visualisation you step through while the implementation runs line by line beside
 it. The logo in the sidebar switches between the two tracks.
 
+The sidebar also has an **AI** section: one page, [Concepts](https://atlas-sysdes.vercel.app/docs/01-concepts),
+that explains fifty terms for building with language models, from tokens to shipping.
+
 Contributions are welcome, particularly corrections. See
 [CONTRIBUTING.md](CONTRIBUTING.md). If the atlas is useful to you, you can
 [sponsor it](https://github.com/sponsors/mertkahyaoglu).
@@ -69,6 +72,7 @@ content/
   concepts/*.md           concept modules
   tech/*.md               technology pages
   designs/*.md            designs
+  ai/*.md                 AI concepts, the "AI" sidebar section
   coding/*.md             coding concepts
 scripts/
   check-viz.mjs           validates every visualisation, run in CI

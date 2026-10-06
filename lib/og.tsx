@@ -25,6 +25,7 @@ const COLOR = {
   design: "#e8a33d",
   tech: "#ad94f7",
   coding: "#6cb2ee",
+  ai: "#ef8fb0",
 } as const;
 
 const ACCENT: Record<DocGroup, string> = {
@@ -32,6 +33,7 @@ const ACCENT: Record<DocGroup, string> = {
   design: COLOR.design,
   tech: COLOR.tech,
   coding: COLOR.coding,
+  ai: COLOR.ai,
 };
 
 const GROUP_LABEL: Record<DocGroup, string> = {
@@ -39,6 +41,7 @@ const GROUP_LABEL: Record<DocGroup, string> = {
   design: "Design",
   tech: "Key technology",
   coding: "Coding",
+  ai: "AI",
 };
 
 /**

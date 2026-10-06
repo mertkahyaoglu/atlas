@@ -14,6 +14,7 @@ interface SidebarProps {
   concepts: DocMeta[];
   tech: DocMeta[];
   designs: DocMeta[];
+  ai: DocMeta[];
   coding: DocMeta[];
 }
 
@@ -39,6 +40,13 @@ const SECTIONS = [
     heading: "Key Technologies",
     note: "One page per system. What it is, and when to reach for it.",
     accent: "var(--tech)",
+  },
+  {
+    id: "ai",
+    track: "sysdesign",
+    heading: "AI",
+    note: "The vocabulary of building with language models.",
+    accent: "var(--ai)",
   },
   {
     id: "coding",
@@ -107,7 +115,7 @@ function Section({ id, heading, note, accent, docs, expanded, onToggle, activeSl
   );
 }
 
-export function Sidebar({ concepts, tech, designs, coding }: SidebarProps) {
+export function Sidebar({ concepts, tech, designs, ai, coding }: SidebarProps) {
   const pathname = usePathname();
   const open = useUiStore((s) => s.sidebarOpen);
   const setOpen = useUiStore((s) => s.setSidebarOpen);
@@ -123,7 +131,7 @@ export function Sidebar({ concepts, tech, designs, coding }: SidebarProps) {
       ? pathname.slice("/coding/".length)
       : "";
 
-  const docsById: Record<SectionId, DocMeta[]> = { concepts, tech, designs, coding };
+  const docsById: Record<SectionId, DocMeta[]> = { concepts, tech, designs, ai, coding };
   const close = () => setOpen(false);
 
   // The store is restored from localStorage before the first client render,

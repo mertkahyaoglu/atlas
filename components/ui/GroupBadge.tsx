@@ -5,6 +5,7 @@ const LABEL: Record<DocGroup, string> = {
   concept: "Concept module",
   tech: "Key technology",
   design: "Design",
+  ai: "AI",
   coding: "Coding",
 };
 
