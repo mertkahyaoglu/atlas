@@ -36,6 +36,8 @@
   --tech-soft: rgba(91, 70, 184, 0.1);
   --coding: #1f6fb2;
   --coding-soft: rgba(31, 111, 178, 0.1);
+  --ai: #b4365f;
+  --ai-soft: rgba(180, 54, 95, 0.1);
 
   /* Status tones for HTTP method and status badges. */
   --tone-green: #1a7f4e;
@@ -87,6 +89,8 @@
   --tech-soft: rgba(173, 148, 247, 0.12);
   --coding: #6cb2ee;
   --coding-soft: rgba(108, 178, 238, 0.12);
+  --ai: #ef8fb0;
+  --ai-soft: rgba(239, 143, 176, 0.12);
 
   --tone-green: #5cc98f;
   --tone-green-soft: rgba(92, 201, 143, 0.1);
@@ -354,6 +358,7 @@
 html.section-collapsed-concepts [data-section="concepts"] [data-section-body],
 html.section-collapsed-tech [data-section="tech"] [data-section-body],
 html.section-collapsed-designs [data-section="designs"] [data-section-body],
+html.section-collapsed-ai [data-section="ai"] [data-section-body],
 html.section-collapsed-coding [data-section="coding"] [data-section-body] {
   display: none;
 }
