@@ -152,6 +152,7 @@ export const GLOSSARY: Record<string, string> = {
   TP1: "Transformation property 1 (an OT convergence condition)",
   TP2: "Transformation property 2 (an OT convergence condition)",
   TTL: "Time to live",
+  UTC: "Coordinated Universal Time",
   UUID: "Universally unique identifier",
   WAF: "Web application firewall",
   WAL: "Write-ahead log",
@@ -183,7 +184,7 @@ export const NOT_ABBREVIATIONS: string[] = [
   // Names of products and projects, not abbreviations to expand.
   "gRPC", "InnoDB", "iOS", "MySQL", "PostGIS", "TinyURL",
   // Not abbreviations at all.
-  "ISO", "II", "OK",
+  "ISO", "II", "OK", "README",
   // Statement, command and state names, written as the system spells them.
   "AND", "DESC", "GEOSEARCH", "HIT", "INSERT", "LISTEN", "MISS", "NOT", "NOTIFY", "PENDING", "POST",
   "PUT", "QUORUM", "RATE", "SET", "SNAPSHOTS", "UNIQUE", "UPDATE",
