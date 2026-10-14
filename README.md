@@ -128,6 +128,10 @@ tags: ["caching", "redis"]
    `part` in the same directory. The sidebar lists a part's documents under its label and numbers
    them from 00 within it, and the page header shows the part and the number. Keep a
    part's `order` values consecutive so prev/next walks through it in sequence.
+   In the sidebar a part is a sub-section the reader can fold on its own, and it counts
+   once in its section's total (Courses shows the number of courses, not lessons). The
+   folded state persists like a section's but needs no stylesheet rule: the part's body
+   reads a `--collapsed-part-<name>` variable that ThemeScript sets before first paint.
 
 That's it — the sidebar, index cards, filters, prev/next links and static routes all
 derive from the file. Nothing else needs editing.

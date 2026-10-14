@@ -1,12 +1,12 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, FlaskConical, PanelLeftClose, X } from "lucide-react";
 import type { DocMeta, Track } from "@/lib/types";
 import { useUiStore } from "@/store/useUiStore";
-import { cn, trackOf } from "@/lib/utils";
+import { cn, partKey, trackOf } from "@/lib/utils";
 import { SidebarLink } from "./SidebarLink";
 import { SiteSwitcher } from "./SiteSwitcher";
 
@@ -75,6 +75,9 @@ interface SectionProps {
   docs: DocMeta[];
   expanded: boolean;
   onToggle: () => void;
+  /** Whether a part (by `partKey`) is shown open. */
+  isPartExpanded: (key: string) => boolean;
+  onTogglePart: (key: string) => void;
   activeSlug: string;
   onNavigate: () => void;
 }
@@ -94,13 +97,79 @@ function groupByPart(docs: DocMeta[]): { part?: string; docs: DocMeta[] }[] {
   return [...groups].filter(([, members]) => members.length > 0).map(([part, members]) => ({ part, docs: members }));
 }
 
+interface PartProps {
+  part: string;
+  accent: string;
+  docs: DocMeta[];
+  expanded: boolean;
+  onToggle: () => void;
+  activeSlug: string;
+  onNavigate: () => void;
+}
+
+/**
+ * A part (a course) inside a section, folded on its own. Its body reads a CSS
+ * variable that ThemeScript and the Sidebar set to `none` on <html> while the
+ * part is collapsed: the same no-flash approach as sections, without a
+ * stylesheet rule per part name.
+ */
+function Part({ part, accent, docs, expanded, onToggle, activeSlug, onNavigate }: PartProps) {
+  const key = partKey(part);
+  const bodyId = `sidebar-${key}`;
+
+  return (
+    <div data-part={key} className="mt-3">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={bodyId}
+        className="flex w-full items-center gap-2 rounded-sm px-3 py-1 text-left transition-colors duration-fast hover:bg-raised"
+      >
+        <ChevronRight
+          aria-hidden
+          className={cn("h-3 w-3 shrink-0 text-inkFaint transition-transform duration-fast", expanded && "rotate-90")}
+        />
+        <span className="font-mono text-micro uppercase tracking-wide" style={{ color: accent }}>
+          {part}
+        </span>
+        <span className="ml-auto font-mono text-micro text-inkFaint">{docs.length}</span>
+      </button>
+      <div
+        id={bodyId}
+        className="mt-1 flex-col"
+        style={{ display: `var(--collapsed-${key}, flex)` }}
+      >
+        {docs.map((doc) => (
+          <SidebarLink key={doc.slug} doc={doc} active={doc.slug === activeSlug} onNavigate={onNavigate} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The body is hidden by CSS rather than by unmounting it, so the collapsed
  * state can be applied before React runs (see ThemeScript) and nothing flashes
  * open on load.
  */
-function Section({ id, heading, note, accent, docs, expanded, onToggle, activeSlug, onNavigate }: SectionProps) {
+function Section({
+  id,
+  heading,
+  note,
+  accent,
+  docs,
+  expanded,
+  onToggle,
+  isPartExpanded,
+  onTogglePart,
+  activeSlug,
+  onNavigate,
+}: SectionProps) {
   const bodyId = `sidebar-section-${id}`;
+  const groups = groupByPart(docs);
+  // A course counts once, however many lessons it has.
+  const count = groups.reduce((n, group) => n + (group.part ? 1 : group.docs.length), 0);
 
   return (
     <div data-section={id}>
@@ -121,7 +190,7 @@ function Section({ id, heading, note, accent, docs, expanded, onToggle, activeSl
           />
           <span className="text-small font-semibold text-ink">{heading}</span>
           <span className="ml-auto font-mono text-micro" style={{ color: accent }}>
-            {docs.length}
+            {count}
           </span>
         </button>
       </h2>
@@ -129,18 +198,24 @@ function Section({ id, heading, note, accent, docs, expanded, onToggle, activeSl
       <div id={bodyId} data-section-body>
         <p className="mb-3 mt-2 px-3 text-tiny leading-snug text-inkFaint">{note}</p>
         <nav className="flex flex-col">
-          {groupByPart(docs).map(({ part, docs: members }) => (
-            <Fragment key={part ?? ""}>
-              {part && (
-                <p className="mb-1 mt-4 px-3 font-mono text-micro uppercase tracking-wide" style={{ color: accent }}>
-                  {part}
-                </p>
-              )}
-              {members.map((doc) => (
+          {groups.map(({ part, docs: members }) =>
+            part ? (
+              <Part
+                key={part}
+                part={part}
+                accent={accent}
+                docs={members}
+                expanded={isPartExpanded(partKey(part))}
+                onToggle={() => onTogglePart(partKey(part))}
+                activeSlug={activeSlug}
+                onNavigate={onNavigate}
+              />
+            ) : (
+              members.map((doc) => (
                 <SidebarLink key={doc.slug} doc={doc} active={doc.slug === activeSlug} onNavigate={onNavigate} />
-              ))}
-            </Fragment>
-          ))}
+              ))
+            ),
+          )}
         </nav>
       </div>
     </div>
@@ -187,15 +262,29 @@ export function Sidebar({ concepts, tech, designs, ai, courses, coding }: Sideba
     }
   }, [collapsedSections]);
 
-  // Navigating into a folded-away section opens it, so the current page is
-  // never hidden. Only on a change of page: collapsing the section you are
+  // Parts hide through a CSS variable their body reads (see Part and ThemeScript).
+  const partKeys = SECTIONS.flatMap((s) => docsById[s.id].flatMap((doc) => (doc.part ? [partKey(doc.part)] : [])));
+  const partKeysId = [...new Set(partKeys)].join(" ");
+  useEffect(() => {
+    const root = document.documentElement.style;
+    for (const key of partKeysId.split(" ").filter(Boolean)) {
+      if (collapsedSections.includes(key)) root.setProperty(`--collapsed-${key}`, "none");
+      else root.removeProperty(`--collapsed-${key}`);
+    }
+  }, [collapsedSections, partKeysId]);
+
+  // Navigating into a folded-away section or part opens it, so the current page
+  // is never hidden. Only on a change of page: collapsing the section you are
   // reading has to stick, including across reloads.
   const lastSlug = useRef(activeSlug);
   useEffect(() => {
     if (activeSlug === lastSlug.current) return;
     lastSlug.current = activeSlug;
     const section = SECTIONS.find((s) => docsById[s.id].some((doc) => doc.slug === activeSlug));
-    if (section) expandSection(section.id);
+    if (!section) return;
+    expandSection(section.id);
+    const part = docsById[section.id].find((doc) => doc.slug === activeSlug)?.part;
+    if (part) expandSection(partKey(part));
     // docsById is rebuilt each render; the slug is what decides this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSlug, expandSection]);
@@ -262,6 +351,8 @@ export function Sidebar({ concepts, tech, designs, ai, courses, coding }: Sideba
               docs={docsById[section.id]}
               expanded={!hydrated || !collapsedSections.includes(section.id)}
               onToggle={() => toggleSection(section.id)}
+              isPartExpanded={(key) => !hydrated || !collapsedSections.includes(key)}
+              onTogglePart={toggleSection}
               activeSlug={activeSlug}
               onNavigate={close}
             />
