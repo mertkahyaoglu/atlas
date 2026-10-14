@@ -72,6 +72,21 @@ interface SectionProps {
 }
 
 /**
+ * Docs without a part first, then each part under its own label, parts in the
+ * order they first appear. A doc can't land under a label it doesn't belong to,
+ * whatever its `order`.
+ */
+function groupByPart(docs: DocMeta[]): { part?: string; docs: DocMeta[] }[] {
+  const groups = new Map<string | undefined, DocMeta[]>([[undefined, []]]);
+  for (const doc of docs) {
+    const members = groups.get(doc.part) ?? [];
+    members.push(doc);
+    groups.set(doc.part, members);
+  }
+  return [...groups].filter(([, members]) => members.length > 0).map(([part, members]) => ({ part, docs: members }));
+}
+
+/**
  * The body is hidden by CSS rather than by unmounting it, so the collapsed
  * state can be applied before React runs (see ThemeScript) and nothing flashes
  * open on load.
@@ -106,14 +121,16 @@ function Section({ id, heading, note, accent, docs, expanded, onToggle, activeSl
       <div id={bodyId} data-section-body>
         <p className="mb-3 mt-2 px-3 text-tiny leading-snug text-inkFaint">{note}</p>
         <nav className="flex flex-col">
-          {docs.map((doc, i) => (
-            <Fragment key={doc.slug}>
-              {doc.part && doc.part !== docs[i - 1]?.part && (
+          {groupByPart(docs).map(({ part, docs: members }) => (
+            <Fragment key={part ?? ""}>
+              {part && (
                 <p className="mb-1 mt-4 px-3 font-mono text-micro uppercase tracking-wide" style={{ color: accent }}>
-                  {doc.part}
+                  {part}
                 </p>
               )}
-              <SidebarLink doc={doc} active={doc.slug === activeSlug} onNavigate={onNavigate} />
+              {members.map((doc) => (
+                <SidebarLink key={doc.slug} doc={doc} active={doc.slug === activeSlug} onNavigate={onNavigate} />
+              ))}
             </Fragment>
           ))}
         </nav>

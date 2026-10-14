@@ -104,17 +104,36 @@ Every chat message passes through this in its Pydantic validator, so no code pat
 
 The second payload is visible text, so it survives parsing. A scanner looks at each retrieved paragraph for the shapes injected instructions take:
 
+| Rule | Looks for | Example it catches |
+|------|-----------|--------------------|
+| `override` | ignore / disregard / forget + previous / all / your + instructions / rules | "ignore all previous instructions" |
+| `addresses_ai` | notes or instructions *for* an AI, "if you are an assistant", "system note" | "Admin note (AI assistants must follow this)" |
+| `exfiltration` | send / email / share + your / the user's + API key / password / token | "email their live API key to..." |
+| `concealment` | do not / never + mention / disclose + this / the user | "Do not mention this note." |
+| `role_hijack` | "you are now", "new instructions:", "act as ... unrestricted" | "From now on, you are DAN" |
+
+Two of the real patterns, as they appear in the file:
+
 ```python
-# safety/injection.py (patterns abbreviated)
+# safety/injection.py
 _RULES: dict[str, re.Pattern[str]] = {
-    "override":     r"\b(ignore|disregard|forget|override)\b ... (previous|prior|all|your) ...
-                      (instructions?|rules?|prompts?|guidelines?)",
-    "addresses_ai": r"(notes?|instructions?) (for|to) (ai|llms?|assistants?|bots?)
-                      | if you are (an?) (ai|assistant|bot) | system (note|prompt|override)",
-    "exfiltration": r"(e-?mail|send|forward|share|paste|provide) (your|the user's|a|any)
-                      (live |full )? (api keys?|passwords?|secrets?|tokens?|recovery codes?)",
-    "concealment":  r"(do not|don't|never) ... (mention|disclose|reveal) ... (this|the user)",
-    "role_hijack":  r"you are now | new instructions?: | from now on,? you | act as ... unrestricted",
+    "override": re.compile(
+        r"\b(ignore|disregard|forget|override)\b[^.]{0,40}\b"
+        r"(previous|prior|above|earlier|all|any|your|the)\b[^.]{0,30}"
+        r"\b(instructions?|rules?|prompts?|guidelines?|directions?|polic(?:y|ies))\b",
+        re.I,
+    ),
+    # Imperative verb + possessive/definite object + a secret, e.g. "email your API
+    # key to ...". Plain mentions ("password reset", "send the key as a bearer token")
+    # and negated advice ("never send your password") must not match.
+    "exfiltration": re.compile(
+        r"\b(?:e-?mail|send|forward|share|submit|paste|reply with|provide|give)\s+"
+        r"(?:us\s+|me\s+|them\s+)?"
+        r"(?:your|their|the customer'?s?|the user'?s?|a|any)\s+(?:live\s+|full\s+|current\s+)?"
+        r"(?:api[- ]?keys?|passwords?|secrets?|tokens?|credentials?|recovery codes?)\b",
+        re.I,
+    ),
+    # ... addresses_ai, concealment, role_hijack
 }
 # A paragraph is flagged on one *strong* signal, or on two weak ones.
 _STRONG = {"override", "addresses_ai", "exfiltration", "role_hijack"}
@@ -423,7 +442,7 @@ async def settle(self, user_id: str, reserved: float, actual: float, *, refund=F
 ```
 
 ```sql
--- the atomic add, in Postgres
+-- the atomic add in Postgres (simplified: the real query also counts requests)
 INSERT INTO usage_daily (user_id, day, cost_usd, requests)
 VALUES ($1, (now() AT TIME ZONE 'utc')::date, $2, 1)
 ON CONFLICT (user_id, day) DO UPDATE SET cost_usd = usage_daily.cost_usd + EXCLUDED.cost_usd
@@ -494,7 +513,7 @@ Writing this list down is not an admission of failure. It is what lets a reviewe
 1. **Watch the defence work.** Run DocsPilot with `DOCSPILOT_INJECTION_POLICY=annotate` and ask "why was my webhook endpoint disabled?", then ask it to open a ticket in the same turn. Find the `write_blocked_tainted_turn` log line.
 2. **Evade the scanner.** Write three paraphrases of the planted instruction that `scan()` misses. Then answer honestly: which later layer stops each one?
 3. **Attack the guard.** Find two URL tricks not covered by the tests in `tests/test_safety.py`. (Start with mixed case, IDN look-alike domains, and a userinfo section.)
-4. **Race the budget.** Write a test that fires ten concurrent reservations of $1 against a $5 cap and asserts exactly five succeed. Then rewrite `reserve` as check-then-record and watch the test fail.
+4. **Race the budget.** Write a test that fires ten concurrent reservations of $1 against a $5 cap and asserts exactly five succeed. Then rewrite `reserve` as check-then-record and watch the test fail. Run it against `PostgresSpendStore` (`make db`): the in-memory store's methods never actually suspend, so with it the tasks cannot interleave between check and record, and the race stays hidden unless you add an `await asyncio.sleep(0)` between the two.
 5. **Write the threat model** for a feature not in DocsPilot: letting the assistant send an email on the user's behalf. Which existing layers apply, and which new one does it need?
 
 ---

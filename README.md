@@ -128,9 +128,11 @@ derive from the file. Nothing else needs editing.
 ## Diagrams
 
 Fenced blocks tagged `mermaid` render as diagrams; everything else renders as a
-copyable code block. Blocks tagged with a language Prism knows (`python`, `sql`, `ts`,
-`js`, `json`, `yaml`, `bash`) are syntax-highlighted with theme colours; `text` and
-untagged blocks stay plain.
+copyable code block. Blocks tagged with a language in the `HIGHLIGHTED` list in
+`components/docs/CodeBlock.tsx` (`python`, `sql`, `ts`, `js`, `json`, `yaml`, `bash`
+and a few more) are syntax-highlighted with theme colours; `text`, untagged and
+unlisted blocks stay plain. Prism is loaded lazily, so a page with no highlighted
+block never downloads it.
 
 A collapsible question, as in the AI course's "Check yourself" sections, is raw HTML:
 `<details><summary>Question?</summary>` then a blank line, the answer in markdown, a

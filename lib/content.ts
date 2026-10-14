@@ -196,7 +196,7 @@ function readGroup(group: DocGroup): Doc[] {
   const dir = path.join(CONTENT_ROOT, GROUP_DIR[group]);
   if (!fs.existsSync(dir)) return [];
 
-  return fs
+  const docs = fs
     .readdirSync(dir)
     .filter((file) => file.endsWith(".md"))
     .flatMap((file) => {
@@ -234,12 +234,16 @@ function readGroup(group: DocGroup): Doc[] {
 
       return [doc];
     })
-    .sort((a, b) => a.order - b.order)
-    .map((doc, _, sorted) => {
-      if (!doc.part) return doc;
-      const partIndex = sorted.filter((d) => d.part === doc.part).indexOf(doc);
-      return { ...doc, partIndex };
-    });
+    .sort((a, b) => a.order - b.order);
+
+  // Number each part's docs from 0, in reading order.
+  const seen = new Map<string, number>();
+  return docs.map((doc) => {
+    if (!doc.part) return doc;
+    const partIndex = seen.get(doc.part) ?? 0;
+    seen.set(doc.part, partIndex + 1);
+    return { ...doc, partIndex };
+  });
 }
 
 /**

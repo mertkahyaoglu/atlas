@@ -141,7 +141,7 @@ This is the cheapest retrieval improvement there is. A chunk that reads "Charges
 | Lose context: "the limit" of what? | Diluted vector: several topics averaged |
 | More chunks to retrieve per answer | Fewer, but each burns more prompt tokens |
 
-There is no right number in the abstract. 350 is where DocsPilot's retrieval evals (lesson 04) came out; change it only with those metrics in front of you.
+There is no right number in the abstract. 350 is DocsPilot's starting default, a reasonable size for short documentation sections, not a measured optimum. Tune it against the retrieval metrics from lesson 04, and change it only with those numbers in front of you.
 
 ### Things to remove at parse time
 

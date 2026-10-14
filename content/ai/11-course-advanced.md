@@ -234,7 +234,9 @@ The question: can a small local model replace the prompted small LLM that classi
 | DistilBERT + LoRA (0.74M of 67.7M params trained) | **0.881 ± 0.008** | 0.767 ± 0.049 | 12-15 ms | 269 MB |
 | Prompted small LLM | not measured | not measured | 300-1,000 ms | none |
 
-LoRA won by 17 points on held-out templates. On the 60 golden questions, which were written independently of the generator (or nearly), the two are **statistically indistinguishable**: single LoRA seeds ranged from 0.717 to 0.833, and the deterministic TF-IDF score sits inside that range. With 60 questions, one question is 1.7 points and the 95% interval is roughly ±10.
+LoRA won by 17 points on held-out templates. On the 60 golden questions the two are **statistically indistinguishable**: single LoRA seeds ranged from 0.717 to 0.833, and the deterministic TF-IDF score sits inside that range. With 60 questions, one question is 1.7 points and the 95% interval is roughly ±10.
+
+Even that second set is weaker evidence than it looks, and DocsPilot's notes say so. The golden questions are not independent of the training data: the synthetic templates were written by someone who had already seen them, so phrasings like "escalate this" appear in both. Exact duplicates were removed; shared style was not. Treat the golden comparison as a sanity check, not an unbiased estimate.
 
 The lessons are more valuable than the model:
 

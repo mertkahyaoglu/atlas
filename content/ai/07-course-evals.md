@@ -107,7 +107,7 @@ class GoldenCase(BaseModel):
 | `contradiction` | 3 | The 14-day vs 30-day refund policies: does the newer one win? |
 | `smalltalk` | 3 | "thanks!": does it answer without searching? |
 
-A dataset of only happy paths measures nothing you will regret. Roughly half of these cases are about **what the system must not do**: invent, obey a document, open an unrequested ticket, leak its prompt. Those are the failures that become incidents.
+A dataset of only happy paths measures nothing you will regret. A third of these cases (19 of 60: unanswerable, adversarial, injection and contradiction) exist to catch **what the system must not do**: invent, obey a document, leak its prompt, quote a superseded policy. And every case, whatever its category, fails if the agent proposes a ticket nobody asked for. Those are the failures that become incidents.
 
 ### Grow it from production
 
@@ -396,7 +396,7 @@ broken by B (1): ['q022']
   q022: missing facts: ['10 one-time recovery codes are issued']
 ```
 
-**Gate on the overall rate, report categories.** Categories have 3 to 7 cases each, so one flip moves a category by 15 to 30 points. Report them, never gate on them. LLM runs are non-deterministic, so the answer gate allows a tolerance (0.08 by default). Retrieval is deterministic, so its tolerance is zero: one lost case is a real regression.
+**Gate on the overall rate, report categories.** Apart from `answerable` (28 cases), every category has 3 to 7, so one flip moves it by 14 to 33 points. Report them, never gate on them. LLM runs are non-deterministic, so the answer gate allows a tolerance (0.08 by default). Retrieval is deterministic, so its tolerance is zero: one lost case is a real regression.
 
 **Put cost and latency next to quality.** A prompt that is 2 points better and three times the tokens is a decision, not a win. The report prints tokens, cost and p50/p95 latency per run. And infrastructure failures (API errors, a judge that errored) are counted separately, so an outage during an eval run does not look like the model getting worse.
 

@@ -407,7 +407,7 @@ Retrieval volume (lesson 03) is usually the largest input lever. The 7,000-chara
 ## Exercises
 
 1. **Watch a trace.** Start the observability compose file, send three questions, and find them in Jaeger. Which span is the longest? What is the time to first token?
-2. **Break the cache.** Add `f"Today is {date.today()}"` to the system prompt. Which test fails? What would the `PromptCacheCold` alert show after deploy?
+2. **Break the cache.** In `Agent._loop`, where each `LLMRequest` is built, append `f"\nCurrent time: {datetime.now().isoformat()}"` to the system prompt, so it changes on every request. (Appending it once at startup would not: the prompt would be fixed until the next restart.) Which test fails, and on which assertion? What would the `PromptCacheCold` alert show after deploy? Then try `date.today()` instead and explain why it barely matters: the prefix changes once a day, and the cache only lives for minutes.
 3. **Price a conversation.** Using the price table, estimate the cost of a five-turn conversation with and without prompt caching. Assume 2,000 tokens of prefix, 4,000 of passages per turn and 250 output tokens per call.
 4. **Poison the cache, then fix it.** Remove `and not event.flags` from the cacheability check. Write a test where retrieval is degraded and show the bad answer being served from cache on the next request.
 5. **Decide on routing.** Suppose 15% of first messages are small talk. With a classification call costing a tenth of an answer call and adding 0.5 s, is routing worth it on cost? On latency?

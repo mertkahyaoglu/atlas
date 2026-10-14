@@ -427,7 +427,7 @@ sequenceDiagram
 
 The interesting part is not the happy path. A confirmed write must run **at most once** across double clicks, retries, crashes and a follow-up model call that fails. Four mechanisms combine:
 
-1. **Claim, don't pop.** `claim` takes exclusive processing rights for 60 seconds. A second request for the same id while it is held gets `409 Conflict`, not a second execution. In Postgres the claim is a single conditional `UPDATE`, so two replicas racing for the same confirmation cannot both win:
+1. **Claim, don't pop.** `claim` takes exclusive processing rights for 60 seconds. A second request for the same id while it is held gets `409 Conflict`, not a second execution. In Postgres the claim is a single conditional `UPDATE`, so two replicas racing for the same confirmation cannot both win (shown with the timeout inlined):
 
    ```sql
    UPDATE pending_actions

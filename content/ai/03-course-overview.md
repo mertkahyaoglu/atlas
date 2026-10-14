@@ -13,7 +13,7 @@ This course builds one application, start to finish, and stops at every point wh
 
 That sounds small. It is small enough to read in a weekend and large enough to contain every hard problem of AI engineering: a model you cannot unit test, a knowledge base that changes under you, tools with side effects, attackers who write documents, a bill that scales with how chatty the model feels, and a provider that goes down on a Tuesday.
 
-Every code sample on these pages is from the real, running repository: [github.com/mertkahyaoglu/DocsPilot](https://github.com/mertkahyaoglu/DocsPilot). Snippets are trimmed for reading; the repository has the whole file, its tests and the review notes that shaped it. Terms such as tokens, embeddings or prompt caching are defined on [Concepts](/docs/01-concepts); this course shows them in code.
+The code on these pages comes from the real, running repository: [github.com/mertkahyaoglu/DocsPilot](https://github.com/mertkahyaoglu/DocsPilot). Snippets are trimmed and sometimes simplified for reading; the few written for the course instead, such as the toy agent loop in lesson 02 or the wrong version of a pattern shown for contrast, say so. The repository has every whole file, its tests and the review notes that shaped it. Terms such as tokens, embeddings or prompt caching are defined on [Concepts](/docs/01-concepts); this course shows them in code.
 
 ---
 
@@ -28,7 +28,7 @@ A user types a question into a chat window. Behind it:
 - A **document in the index contains a prompt injection**, on purpose. The system notices, removes it, and refuses any write for the rest of that turn.
 - Every model call is **traced, priced and metered**, and each user has a daily spend cap.
 - When the model provider fails, it **fails over** to a second model; when both fail, it shows the most relevant doc excerpts instead of an error.
-- A **golden dataset** of 60 questions gates every change in CI.
+- A **golden dataset** of 60 questions measures quality: retrieval is checked on every pull request, answers on demand.
 
 ---
 

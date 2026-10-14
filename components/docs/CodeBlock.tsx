@@ -1,48 +1,43 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { Highlight, Prism, type PrismTheme } from "prism-react-renderer";
 
 interface CodeBlockProps {
   code: string;
   language?: string;
 }
 
-// prism-react-renderer bundles the common grammars but not a shell one. This is
-// enough to tell commands, flags, strings and comments apart in a setup snippet.
-Prism.languages.bash ??= {
-  comment: { pattern: /(^|\s)#.*/, lookbehind: true },
-  string: /"(?:\\.|[^"\\])*"|'[^']*'/,
-  variable: /\$\{?[\w]+\}?/,
-  function: { pattern: /(^|[;&|]\s*|\n\s*)[\w./-]+/, lookbehind: true },
-  parameter: /(?:^|\s)--?[\w-]+(?:=\S+)?/,
-  operator: /&&|\|\||[|>]/,
-};
-Prism.languages.sh ??= Prism.languages.bash;
-Prism.languages.shell ??= Prism.languages.bash;
+const HighlightedCode = lazy(() => import("./HighlightedCode").then((m) => ({ default: m.HighlightedCode })));
 
 /**
- * Token colours come from CSS (`.code-hl .token` in globals.css), so they follow
- * the theme like everything else. The theme object only has to exist.
+ * Fence tags that get syntax highlighting. An explicit list rather than a
+ * lookup in Prism's registry, so deciding costs nothing and pages whose blocks
+ * are all `text` never load Prism at all.
  */
-const THEME: PrismTheme = { plain: {}, styles: [] };
-
-/** Fences tagged with anything prism doesn't know render plain, as before. */
-function grammar(language: string | undefined): string | null {
-  if (!language) return null;
-  const lang = language.toLowerCase();
-  return lang in Prism.languages ? lang : null;
-}
+const HIGHLIGHTED = new Set([
+  "bash", "sh", "shell",
+  "css",
+  "go",
+  "js", "javascript", "jsx",
+  "json",
+  "py", "python",
+  "rust",
+  "sql",
+  "ts", "typescript", "tsx",
+  "yaml", "yml",
+]);
 
 /**
  * Most fenced blocks are schemas, API shapes and ASCII sketches tagged `text`,
  * which stay plain. Blocks tagged with a real language (python, sql, ts) are
- * highlighted, since the AI course reads mostly as code.
+ * highlighted, since the AI course reads mostly as code. The plain block is
+ * also the fallback while the highlighter loads on a client-side navigation.
  */
 export function CodeBlock({ code, language }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
-  const lang = grammar(language);
+  const lang = language?.toLowerCase();
+  const plain = <code className="font-mono text-tiny leading-relaxed text-ink">{code}</code>;
 
   async function copy() {
     await navigator.clipboard.writeText(code);
@@ -64,28 +59,12 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
         </button>
       </div>
       <pre className="overflow-x-auto px-4 py-3.5">
-        {lang ? (
-          <Highlight code={code} language={lang} theme={THEME} prism={Prism}>
-            {({ tokens, getTokenProps }) => (
-              <code className="code-hl font-mono text-tiny leading-relaxed text-ink">
-                {tokens.map((line, i) => (
-                  <Fragment key={i}>
-                    {i > 0 && "\n"}
-                    {line.map((token, j) => {
-                      const { className, children } = getTokenProps({ token });
-                      return (
-                        <span key={j} className={className}>
-                          {children}
-                        </span>
-                      );
-                    })}
-                  </Fragment>
-                ))}
-              </code>
-            )}
-          </Highlight>
+        {lang && HIGHLIGHTED.has(lang) ? (
+          <Suspense fallback={plain}>
+            <HighlightedCode code={code} language={lang} />
+          </Suspense>
         ) : (
-          <code className="font-mono text-tiny leading-relaxed text-ink">{code}</code>
+          plain
         )}
       </pre>
     </div>
