@@ -24,6 +24,7 @@ const GROUP_DIR: Record<DocGroup, string> = {
   design: "designs",
   tech: "tech",
   ai: "ai",
+  course: "courses",
   coding: "coding",
 };
 
@@ -32,7 +33,7 @@ const GROUP_DIR: Record<DocGroup, string> = {
  * Coding sits last because it is a separate track with its own route, not a
  * step in the system design sequence.
  */
-const GROUP_ORDER: DocGroup[] = ["concept", "tech", "design", "ai", "coding"];
+const GROUP_ORDER: DocGroup[] = ["concept", "tech", "design", "ai", "course", "coding"];
 
 const WORDS_PER_MINUTE = 200;
 

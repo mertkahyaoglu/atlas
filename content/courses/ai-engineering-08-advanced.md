@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 11
+group: "course"
+part: "AI Engineering"
+order: 8
 title: "Advanced patterns"
 summary: "Five techniques that are easy to over-apply, each with what it costs and the measurement that decides whether you need it: multi-agent for privilege separation, MCP in both directions, vector indexes at scale, fine-tuning a small router, and OIDC for end users. Then the principles that carry across the course."
 tags: []

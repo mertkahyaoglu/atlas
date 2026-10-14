@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 6
+group: "course"
+part: "AI Engineering"
+order: 3
 title: "Retrieval (RAG)"
 summary: "Give the model your product's knowledge at question time: chunk by structure, embed with context, store in Postgres with pgvector, search by meaning and by keyword in parallel, fuse with RRF, rerank, fence the passages as data, and check every citation."
 tags: []

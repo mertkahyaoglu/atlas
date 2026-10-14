@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 8
+group: "course"
+part: "AI Engineering"
+order: 5
 title: "Observability and cost"
 summary: "See what each request did and what it cost: one trace per turn with GenAI attributes, one instrumented choke point for every model call, metrics labelled by model and purpose, a price table, and the cost levers in the order to pull them: prompt caching, response caching, effort, routing and context size."
 tags: []

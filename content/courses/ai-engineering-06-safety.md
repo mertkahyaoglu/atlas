@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 9
+group: "course"
+part: "AI Engineering"
+order: 6
 title: "Safety"
 summary: "Assume the model will be persuaded, by a user, a document or a tool result, and design so that being persuaded is not enough to cause harm: a threat model, five layers against indirect injection, an output guard that checks text before it streams, identity, rate limits and spend caps that hold under concurrency."
 tags: []

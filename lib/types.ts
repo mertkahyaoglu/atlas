@@ -1,4 +1,4 @@
-export type DocGroup = "concept" | "design" | "tech" | "ai" | "coding";
+export type DocGroup = "concept" | "design" | "tech" | "ai" | "course" | "coding";
 
 /** The two halves of the atlas, each with its own route: /docs and /coding. */
 export type Track = "sysdesign" | "coding";

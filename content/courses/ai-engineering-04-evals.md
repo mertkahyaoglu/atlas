@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 7
+group: "course"
+part: "AI Engineering"
+order: 4
 title: "Evals"
 summary: "Turn quality into a number you can gate on: a golden dataset built around the failures you fear, deterministic retrieval metrics on every pull request, answers graded by code first and an LLM judge second, a judge that is itself checked against human labels, and honest statistics."
 tags: []

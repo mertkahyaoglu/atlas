@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 3
+group: "course"
+part: "AI Engineering"
+order: 0
 title: "Overview"
 summary: "A course that builds one production AI application end to end: a support assistant that answers from product docs with citations and opens tickets behind a human approval. Eight lessons, each a working layer of the same codebase."
 tags: []
@@ -134,14 +134,14 @@ A typical turn is two model calls and one retrieval. The first call carries the 
 
 | # | Lesson | You build | The idea that matters |
 |---|--------|-----------|------------------------|
-| 01 | [Foundations](/docs/04-course-foundations) | A typed model client, SSE streaming, error taxonomy, versioned prompts | The model API is stateless and slow; wrap it behind your own types |
-| 02 | [Tools and agents](/docs/05-course-tools-and-agents) | The agent loop, tool schemas, human confirmation, structured output | The model proposes, your code disposes |
-| 03 | [Retrieval](/docs/06-course-retrieval) | Chunking, pgvector, hybrid search, RRF, rerank, citations | Answer quality is capped by retrieval quality |
-| 04 | [Evals](/docs/07-course-evals) | A golden set, retrieval metrics, an LLM judge, a CI gate | Without a number, every change is a coin flip |
-| 05 | [Observability and cost](/docs/08-course-observability-and-cost) | Traces, metrics, pricing, prompt and response caching, routing | A 200 OK can be wrong and 40x too expensive |
-| 06 | [Safety](/docs/09-course-safety) | Injection defence, output guard, auth, rate limits, budgets | Design so that a persuaded model cannot cause harm |
-| 07 | [Shipping](/docs/10-course-shipping) | Docker, CI, failover, circuit breaker, degraded mode, runbook | Degrade instead of dying |
-| 08 | [Advanced patterns](/docs/11-course-advanced) | Multi-agent, MCP, vector index tuning, fine-tuning a router | Every advanced feature must earn its cost with a measurement |
+| 01 | [Foundations](/docs/ai-engineering-01-foundations) | A typed model client, SSE streaming, error taxonomy, versioned prompts | The model API is stateless and slow; wrap it behind your own types |
+| 02 | [Tools and agents](/docs/ai-engineering-02-tools-and-agents) | The agent loop, tool schemas, human confirmation, structured output | The model proposes, your code disposes |
+| 03 | [Retrieval](/docs/ai-engineering-03-retrieval) | Chunking, pgvector, hybrid search, RRF, rerank, citations | Answer quality is capped by retrieval quality |
+| 04 | [Evals](/docs/ai-engineering-04-evals) | A golden set, retrieval metrics, an LLM judge, a CI gate | Without a number, every change is a coin flip |
+| 05 | [Observability and cost](/docs/ai-engineering-05-observability-and-cost) | Traces, metrics, pricing, prompt and response caching, routing | A 200 OK can be wrong and 40x too expensive |
+| 06 | [Safety](/docs/ai-engineering-06-safety) | Injection defence, output guard, auth, rate limits, budgets | Design so that a persuaded model cannot cause harm |
+| 07 | [Shipping](/docs/ai-engineering-07-shipping) | Docker, CI, failover, circuit breaker, degraded mode, runbook | Degrade instead of dying |
+| 08 | [Advanced patterns](/docs/ai-engineering-08-advanced) | Multi-agent, MCP, vector index tuning, fine-tuning a router | Every advanced feature must earn its cost with a measurement |
 
 Each lesson has the same shape: what you will learn, the concepts in the order you need them with the code that implements each, a table of what breaks in production, exercises against the repository, and a short self-check.
 

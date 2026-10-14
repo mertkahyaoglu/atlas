@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 4
+group: "course"
+part: "AI Engineering"
+order: 1
 title: "Foundations"
 summary: "The layer every other lesson stands on: a model client behind your own types, answers streamed over SSE, errors classified into policy, prompts versioned like code, and a fake model so the whole stack runs in tests."
 tags: []

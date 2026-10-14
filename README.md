@@ -21,8 +21,12 @@ it. The logo in the sidebar switches between the two tracks.
 The sidebar also has an **AI** section. [Concepts](https://atlas-sysdes.vercel.app/docs/01-concepts)
 explains fifty terms for building with language models, from tokens to shipping, and
 [Q&A](https://atlas-sysdes.vercel.app/docs/02-qa) answers twenty AI engineering interview
-questions. Below them, the **AI Engineering Course** builds one production application end
-to end, [DocsPilot](https://github.com/mertkahyaoglu/DocsPilot), in an overview and eight
+questions.
+
+A **Courses** section follows, for courses that build one real system end to end. The
+first, **AI Engineering**, builds a production application,
+[DocsPilot](https://github.com/mertkahyaoglu/DocsPilot), in an
+[overview](https://atlas-sysdes.vercel.app/docs/ai-engineering-00-overview) and eight
 lessons: foundations, tools and agents, retrieval, evals, observability and cost, safety,
 shipping and advanced patterns. Each lesson explains the concepts with the project's real
 code, architecture diagrams and self-check questions.
@@ -78,7 +82,8 @@ content/
   concepts/*.md           concept modules
   tech/*.md               technology pages
   designs/*.md            designs
-  ai/*.md                 AI concepts, Q&A and the AI Engineering Course, the "AI" sidebar section
+  ai/*.md                 AI concepts and Q&A, the "AI" sidebar section
+  courses/*.md            courses, the "Courses" sidebar section; each course is a `part`
   coding/*.md             coding concepts
 scripts/
   check-viz.mjs           validates every visualisation, run in CI
@@ -117,8 +122,10 @@ tags: ["caching", "redis"]
    write "APNs" and let the tooltip say "Apple Push Notification service".
    `npm run check:abbr` lists any that are missing; CI runs it too. Terms every reader
    knows (API, URL, JSON) and product names go in `NOT_ABBREVIATIONS` instead.
-7. A run of documents inside a group can share a `part` (the AI course uses
-   `part: "AI Engineering Course"`). The sidebar lists them under that label and numbers
+7. A run of documents inside a group can share a `part`: each course in
+   `content/courses/` is one (`part: "AI Engineering"`), with `group: "course"` and
+   slugs prefixed by the course, e.g. `ai-engineering-03-retrieval`. A new course is a new
+   `part` in the same directory. The sidebar lists a part's documents under its label and numbers
    them from 00 within it, and the page header shows the part and the number. Keep a
    part's `order` values consecutive so prev/next walks through it in sequence.
 

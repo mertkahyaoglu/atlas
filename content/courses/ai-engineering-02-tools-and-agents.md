@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 5
+group: "course"
+part: "AI Engineering"
+order: 2
 title: "Tools and agents"
 summary: "The agent loop in about a hundred lines: tools defined once as typed schemas, model input validated and contained, reads run in parallel, writes paused for a human who approves the exact arguments, and every side effect executed at most once."
 tags: []

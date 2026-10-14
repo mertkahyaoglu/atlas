@@ -1,7 +1,7 @@
 ---
-group: "ai"
-part: "AI Engineering Course"
-order: 10
+group: "course"
+part: "AI Engineering"
+order: 7
 title: "Shipping"
 summary: "Production means it starts the same way everywhere, degrades instead of dying, keeps its state through a deploy, and lets whoever is on call answer \"why was this answer wrong?\" from a trace: a reproducible image, a CI pipeline with a container smoke test, failover, a circuit breaker, degraded mode, shared state and a runbook."
 tags: []
