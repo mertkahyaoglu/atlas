@@ -224,6 +224,7 @@ function readGroup(group: DocGroup): Doc[] {
         role: data.role ? String(data.role) : undefined,
         tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
         viz: data.viz ? String(data.viz) : undefined,
+        part: data.part ? String(data.part) : undefined,
         readingMinutes: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
         content,
         design,
@@ -233,7 +234,12 @@ function readGroup(group: DocGroup): Doc[] {
 
       return [doc];
     })
-    .sort((a, b) => a.order - b.order);
+    .sort((a, b) => a.order - b.order)
+    .map((doc, _, sorted) => {
+      if (!doc.part) return doc;
+      const partIndex = sorted.filter((d) => d.part === doc.part).indexOf(doc);
+      return { ...doc, partIndex };
+    });
 }
 
 /**

@@ -33,6 +33,13 @@ export interface DocMeta {
   tags: string[];
   /** Coding docs only: id of the animated visualisation above the body. */
   viz?: string;
+  /**
+   * A named run of docs inside a group, e.g. the AI course. The sidebar lists a
+   * part under its own label and numbers its docs from 00.
+   */
+  part?: string;
+  /** Position within `part`, from 0. Derived from `order`, never authored. */
+  partIndex?: number;
   readingMinutes: number;
 }
 

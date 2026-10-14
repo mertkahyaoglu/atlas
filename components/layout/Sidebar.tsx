@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, FlaskConical, PanelLeftClose, X } from "lucide-react";
@@ -45,7 +45,7 @@ const SECTIONS = [
     id: "ai",
     track: "sysdesign",
     heading: "AI",
-    note: "The vocabulary of building with language models.",
+    note: "The vocabulary of building with language models, and a course that builds one.",
     accent: "var(--ai)",
   },
   {
@@ -106,8 +106,15 @@ function Section({ id, heading, note, accent, docs, expanded, onToggle, activeSl
       <div id={bodyId} data-section-body>
         <p className="mb-3 mt-2 px-3 text-tiny leading-snug text-inkFaint">{note}</p>
         <nav className="flex flex-col">
-          {docs.map((doc) => (
-            <SidebarLink key={doc.slug} doc={doc} active={doc.slug === activeSlug} onNavigate={onNavigate} />
+          {docs.map((doc, i) => (
+            <Fragment key={doc.slug}>
+              {doc.part && doc.part !== docs[i - 1]?.part && (
+                <p className="mb-1 mt-4 px-3 font-mono text-micro uppercase tracking-wide" style={{ color: accent }}>
+                  {doc.part}
+                </p>
+              )}
+              <SidebarLink doc={doc} active={doc.slug === activeSlug} onNavigate={onNavigate} />
+            </Fragment>
           ))}
         </nav>
       </div>

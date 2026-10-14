@@ -24,6 +24,11 @@ export function DocHeader({
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <GroupBadge group={doc.group} />
         {doc.role && <span className="font-mono text-micro text-inkMuted">{doc.role}</span>}
+        {doc.part && (
+          <span className="font-mono text-micro text-inkMuted">
+            {doc.part} · {String(doc.partIndex ?? 0).padStart(2, "0")}
+          </span>
+        )}
         <span className="flex items-center gap-1.5 font-mono text-micro text-inkFaint">
           <Clock className="h-3 w-3" aria-hidden />
           {doc.readingMinutes} min
