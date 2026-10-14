@@ -20,6 +20,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Collapse key for a sidebar part (a course): "AI Engineering" -> "part-ai-engineering".
+ * Stored alongside section ids; the `part-` prefix is how ThemeScript tells them apart.
+ */
+export function partKey(part: string) {
+  return `part-${part.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+}
+
 /** Accent CSS variable for a group. Components read `--accent`, never a theme. */
 export function accentVar(group: DocGroup) {
   return { "--accent": `var(--${group})` } as React.CSSProperties;

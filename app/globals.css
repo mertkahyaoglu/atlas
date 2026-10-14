@@ -38,6 +38,8 @@
   --coding-soft: rgba(31, 111, 178, 0.1);
   --ai: #b4365f;
   --ai-soft: rgba(180, 54, 95, 0.1);
+  --course: #4a7c16;
+  --course-soft: rgba(74, 124, 22, 0.1);
 
   /* Status tones for HTTP method and status badges. */
   --tone-green: #1a7f4e;
@@ -91,6 +93,8 @@
   --coding-soft: rgba(108, 178, 238, 0.12);
   --ai: #ef8fb0;
   --ai-soft: rgba(239, 143, 176, 0.12);
+  --course: #9bd36a;
+  --course-soft: rgba(155, 211, 106, 0.12);
 
   --tone-green: #5cc98f;
   --tone-green-soft: rgba(92, 201, 143, 0.1);
@@ -297,6 +301,85 @@
   .doc img {
     @apply rounded max-w-full;
   }
+
+  /* A question the reader answers before opening it: the AI course's
+     "check yourself" sections. Closed, only the question shows. */
+  .doc details {
+    @apply max-w-reading rounded border border-rule bg-surface;
+  }
+  .doc details + details {
+    @apply mt-2;
+  }
+  .doc summary {
+    @apply cursor-pointer list-none px-4 py-3 text-small font-medium text-ink transition-colors duration-fast;
+  }
+  .doc summary::-webkit-details-marker {
+    display: none;
+  }
+  .doc summary::before {
+    content: "+";
+    @apply mr-3 inline-block w-3 font-mono text-[color:var(--accent)];
+  }
+  .doc details[open] > summary::before {
+    content: "\2212";
+  }
+  .doc summary:hover {
+    background: var(--raised);
+  }
+  .doc details > :not(summary) {
+    @apply mx-4 mb-3 mt-0 text-small text-inkMuted;
+  }
+  .doc details[open] > summary {
+    @apply mb-1;
+  }
+}
+
+/* Syntax colours for highlighted code blocks (components/docs/CodeBlock.tsx).
+   Theme tokens, so they adapt with the rest of the page; keywords and strings
+   carry the colour, everything structural stays ink. */
+.code-hl .token.comment,
+.code-hl .token.prolog,
+.code-hl .token.doctype {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+.code-hl .token.keyword,
+.code-hl .token.atrule,
+.code-hl .token.important,
+.code-hl .token.builtin {
+  color: var(--tone-violet);
+}
+.code-hl .token.string,
+.code-hl .token.char,
+.code-hl .token.attr-value,
+.code-hl .token.triple-quoted-string,
+.code-hl .token.template-string {
+  color: var(--tone-green);
+}
+.code-hl .token.number,
+.code-hl .token.boolean,
+.code-hl .token.constant {
+  color: var(--tone-amber);
+}
+.code-hl .token.function,
+.code-hl .token.class-name {
+  color: var(--tone-blue);
+}
+.code-hl .token.decorator,
+.code-hl .token.annotation,
+.code-hl .token.parameter,
+.code-hl .token.variable {
+  color: var(--tone-teal);
+}
+.code-hl .token.property,
+.code-hl .token.key,
+.code-hl .token.attr-name,
+.code-hl .token.tag {
+  color: var(--tone-pink);
+}
+.code-hl .token.punctuation,
+.code-hl .token.operator {
+  color: var(--ink-muted);
 }
 
 /* Abbreviations spelled out on hover: marked by lib/rehype-abbr.ts, explained
@@ -359,6 +442,7 @@ html.section-collapsed-concepts [data-section="concepts"] [data-section-body],
 html.section-collapsed-tech [data-section="tech"] [data-section-body],
 html.section-collapsed-designs [data-section="designs"] [data-section-body],
 html.section-collapsed-ai [data-section="ai"] [data-section-body],
+html.section-collapsed-courses [data-section="courses"] [data-section-body],
 html.section-collapsed-coding [data-section="coding"] [data-section-body] {
   display: none;
 }

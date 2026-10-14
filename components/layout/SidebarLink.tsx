@@ -34,7 +34,7 @@ export function SidebarLink({ doc, active, onNavigate }: SidebarLinkProps) {
           active ? "text-[color:var(--accent)]" : "text-inkFaint",
         )}
       >
-        {String(doc.order).padStart(2, "0")}
+        {String(doc.partIndex ?? doc.order).padStart(2, "0")}
       </span>
       <span className="leading-snug">{doc.title}</span>
       {completed && (

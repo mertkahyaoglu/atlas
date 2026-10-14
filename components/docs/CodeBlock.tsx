@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 interface CodeBlockProps {
@@ -8,13 +8,36 @@ interface CodeBlockProps {
   language?: string;
 }
 
+const HighlightedCode = lazy(() => import("./HighlightedCode").then((m) => ({ default: m.HighlightedCode })));
+
 /**
- * Fenced blocks in this content are mostly schemas, API shapes and small
- * ASCII illustrations rather than runnable code, so there's no syntax
- * highlighter — just a legible mono block with the language noted.
+ * Fence tags that get syntax highlighting. An explicit list rather than a
+ * lookup in Prism's registry, so deciding costs nothing and pages whose blocks
+ * are all `text` never load Prism at all.
+ */
+const HIGHLIGHTED = new Set([
+  "bash", "sh", "shell",
+  "css",
+  "go",
+  "js", "javascript", "jsx",
+  "json",
+  "py", "python",
+  "rust",
+  "sql",
+  "ts", "typescript", "tsx",
+  "yaml", "yml",
+]);
+
+/**
+ * Most fenced blocks are schemas, API shapes and ASCII sketches tagged `text`,
+ * which stay plain. Blocks tagged with a real language (python, sql, ts) are
+ * highlighted, since the AI course reads mostly as code. The plain block is
+ * also the fallback while the highlighter loads on a client-side navigation.
  */
 export function CodeBlock({ code, language }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const lang = language?.toLowerCase();
+  const plain = <code className="font-mono text-tiny leading-relaxed text-ink">{code}</code>;
 
   async function copy() {
     await navigator.clipboard.writeText(code);
@@ -36,7 +59,13 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
         </button>
       </div>
       <pre className="overflow-x-auto px-4 py-3.5">
-        <code className="font-mono text-tiny leading-relaxed text-ink">{code}</code>
+        {lang && HIGHLIGHTED.has(lang) ? (
+          <Suspense fallback={plain}>
+            <HighlightedCode code={code} language={lang} />
+          </Suspense>
+        ) : (
+          plain
+        )}
       </pre>
     </div>
   );

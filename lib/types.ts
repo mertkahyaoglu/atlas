@@ -1,4 +1,4 @@
-export type DocGroup = "concept" | "design" | "tech" | "ai" | "coding";
+export type DocGroup = "concept" | "design" | "tech" | "ai" | "course" | "coding";
 
 /** The two halves of the atlas, each with its own route: /docs and /coding. */
 export type Track = "sysdesign" | "coding";
@@ -33,6 +33,13 @@ export interface DocMeta {
   tags: string[];
   /** Coding docs only: id of the animated visualisation above the body. */
   viz?: string;
+  /**
+   * A named run of docs inside a group, e.g. the AI course. The sidebar lists a
+   * part under its own label and numbers its docs from 00.
+   */
+  part?: string;
+  /** Position within `part`, from 0. Derived from `order`, never authored. */
+  partIndex?: number;
   readingMinutes: number;
 }
 

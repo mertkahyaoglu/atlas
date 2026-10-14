@@ -24,6 +24,7 @@ const GROUP_DIR: Record<DocGroup, string> = {
   design: "designs",
   tech: "tech",
   ai: "ai",
+  course: "courses",
   coding: "coding",
 };
 
@@ -32,7 +33,7 @@ const GROUP_DIR: Record<DocGroup, string> = {
  * Coding sits last because it is a separate track with its own route, not a
  * step in the system design sequence.
  */
-const GROUP_ORDER: DocGroup[] = ["concept", "tech", "design", "ai", "coding"];
+const GROUP_ORDER: DocGroup[] = ["concept", "tech", "design", "ai", "course", "coding"];
 
 const WORDS_PER_MINUTE = 200;
 
@@ -196,7 +197,7 @@ function readGroup(group: DocGroup): Doc[] {
   const dir = path.join(CONTENT_ROOT, GROUP_DIR[group]);
   if (!fs.existsSync(dir)) return [];
 
-  return fs
+  const docs = fs
     .readdirSync(dir)
     .filter((file) => file.endsWith(".md"))
     .flatMap((file) => {
@@ -224,6 +225,7 @@ function readGroup(group: DocGroup): Doc[] {
         role: data.role ? String(data.role) : undefined,
         tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
         viz: data.viz ? String(data.viz) : undefined,
+        part: data.part ? String(data.part) : undefined,
         readingMinutes: Math.max(1, Math.round(words / WORDS_PER_MINUTE)),
         content,
         design,
@@ -234,6 +236,15 @@ function readGroup(group: DocGroup): Doc[] {
       return [doc];
     })
     .sort((a, b) => a.order - b.order);
+
+  // Number each part's docs from 0, in reading order.
+  const seen = new Map<string, number>();
+  return docs.map((doc) => {
+    if (!doc.part) return doc;
+    const partIndex = seen.get(doc.part) ?? 0;
+    seen.set(doc.part, partIndex + 1);
+    return { ...doc, partIndex };
+  });
 }
 
 /**

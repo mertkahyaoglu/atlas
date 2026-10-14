@@ -18,8 +18,18 @@ algorithms — hash tables through dynamic programming — each open with a
 visualisation you step through while the implementation runs line by line beside
 it. The logo in the sidebar switches between the two tracks.
 
-The sidebar also has an **AI** section: one page, [Concepts](https://atlas-sysdes.vercel.app/docs/01-concepts),
-that explains fifty terms for building with language models, from tokens to shipping.
+The sidebar also has an **AI** section. [Concepts](https://atlas-sysdes.vercel.app/docs/01-concepts)
+explains fifty terms for building with language models, from tokens to shipping, and
+[Q&A](https://atlas-sysdes.vercel.app/docs/02-qa) answers twenty AI engineering interview
+questions.
+
+A **Courses** section follows, for courses that build one real system end to end. The
+first, **AI Engineering**, builds a production application,
+[DocsPilot](https://github.com/mertkahyaoglu/DocsPilot), in an
+[overview](https://atlas-sysdes.vercel.app/docs/ai-engineering-00-overview) and eight
+lessons: foundations, tools and agents, retrieval, evals, observability and cost, safety,
+shipping and advanced patterns. Each lesson explains the concepts with the project's real
+code, architecture diagrams and self-check questions.
 
 Contributions are welcome, particularly corrections. See
 [CONTRIBUTING.md](CONTRIBUTING.md). If the atlas is useful to you, you can
@@ -72,7 +82,8 @@ content/
   concepts/*.md           concept modules
   tech/*.md               technology pages
   designs/*.md            designs
-  ai/*.md                 AI concepts, the "AI" sidebar section
+  ai/*.md                 AI concepts and Q&A, the "AI" sidebar section
+  courses/*.md            courses, the "Courses" sidebar section; each course is a `part`
   coding/*.md             coding concepts
 scripts/
   check-viz.mjs           validates every visualisation, run in CI
@@ -111,6 +122,16 @@ tags: ["caching", "redis"]
    write "APNs" and let the tooltip say "Apple Push Notification service".
    `npm run check:abbr` lists any that are missing; CI runs it too. Terms every reader
    knows (API, URL, JSON) and product names go in `NOT_ABBREVIATIONS` instead.
+7. A run of documents inside a group can share a `part`: each course in
+   `content/courses/` is one (`part: "AI Engineering"`), with `group: "course"` and
+   slugs prefixed by the course, e.g. `ai-engineering-03-retrieval`. A new course is a new
+   `part` in the same directory. The sidebar lists a part's documents under its label and numbers
+   them from 00 within it, and the page header shows the part and the number. Keep a
+   part's `order` values consecutive so prev/next walks through it in sequence.
+   In the sidebar a part is a sub-section the reader can fold on its own, and it counts
+   once in its section's total (Courses shows the number of courses, not lessons). The
+   folded state persists like a section's but needs no stylesheet rule: the part's body
+   reads a `--collapsed-part-<name>` variable that ThemeScript sets before first paint.
 
 That's it — the sidebar, index cards, filters, prev/next links and static routes all
 derive from the file. Nothing else needs editing.
@@ -118,7 +139,16 @@ derive from the file. Nothing else needs editing.
 ## Diagrams
 
 Fenced blocks tagged `mermaid` render as diagrams; everything else renders as a
-copyable code block.
+copyable code block. Blocks tagged with a language in the `HIGHLIGHTED` list in
+`components/docs/CodeBlock.tsx` (`python`, `sql`, `ts`, `js`, `json`, `yaml`, `bash`
+and a few more) are syntax-highlighted with theme colours; `text`, untagged and
+unlisted blocks stay plain. Prism is loaded lazily, so a page with no highlighted
+block never downloads it.
+
+A collapsible question, as in the AI course's "Check yourself" sections, is raw HTML:
+`<details><summary>Question?</summary>` then a blank line, the answer in markdown, a
+blank line and `</details>`. Markdown is not parsed inside `<summary>`, so write inline
+code there as `<code>…</code>`, not backticks.
 
 Flowcharts (`flowchart TB` or `flowchart LR`) are drawn with React Flow, so they pan,
 zoom and go full screen. They are still authored in Mermaid syntax:

@@ -27,11 +27,13 @@ const config: Config = {
         tech: "var(--tech)",
         coding: "var(--coding)",
         ai: "var(--ai)",
+        course: "var(--course)",
         conceptSoft: "var(--concept-soft)",
         designSoft: "var(--design-soft)",
         techSoft: "var(--tech-soft)",
         codingSoft: "var(--coding-soft)",
         aiSoft: "var(--ai-soft)",
+        courseSoft: "var(--course-soft)",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
